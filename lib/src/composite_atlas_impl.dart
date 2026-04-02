@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flame/components.dart';
 import 'package:flame/rendering.dart';
@@ -90,6 +89,7 @@ class AtlasContext {
   final ui.Size atlasSize;
   final ui.Size localSize;
   final int? itemIndex;
+  final int? itemCount;
 
   AtlasContext({
     required this.atlasImage,
@@ -97,6 +97,7 @@ class AtlasContext {
     required this.atlasSize,
     required this.localSize,
     this.itemIndex,
+    this.itemCount,
   });
 }
 
@@ -153,11 +154,38 @@ class CompositeAtlasImpl implements CompositeAtlas {
     try {
       // 1. Group requests by unique visual representation
       final Map<_RegionFilterKey, List<_PendingBake>> groupedTasks = {};
-      final Map<String, int> prefixIndices =
-          {}; // Track indices within animation sequences
+      final Map<String, int> animationLengths =
+          {}; // Total frames per animation name
+
+      for (final request in requests) {
+        if (request is AtlasBakeRequest) {
+          // Track per-request lengths to avoid sharing state between requests
+          final Map<String, int> localLengths = {};
+          for (final sprite in request.atlas.sprites) {
+            final name = sprite.region.name;
+            if (request.whiteList == null ||
+                request.whiteList!.any(
+                  (w) => name == w || name.startsWith(w),
+                )) {
+              localLengths[name] = (localLengths[name] ?? 0) + 1;
+            }
+          }
+          // Merge into global store for the keys
+          for (final entry in localLengths.entries) {
+            final existing = animationLengths[entry.key] ?? 0;
+            // Use maximum for the shared key property
+            animationLengths[entry.key] = math.max(
+              existing,
+              entry.key.contains(RegExp(r'\d')) ? 1 : entry.value,
+            );
+          }
+        }
+      }
 
       for (final request in requests) {
         final prefix = request.keyPrefix ?? '';
+        final Map<String, int> localIndices =
+            {}; // Track indices for non-indexed sprites per request
 
         if (request is AtlasBakeRequest) {
           for (final sprite in request.atlas.sprites) {
@@ -170,77 +198,110 @@ class CompositeAtlasImpl implements CompositeAtlas {
               }
             }
 
-            final int itemIndex =
-                (sprite is TexturePackerSprite && sprite.region.index != -1)
+            final int itemIndex = (sprite.region.index != -1)
                 ? sprite.region.index
-                : (prefixIndices[region.name] ?? 0);
-            prefixIndices[region.name] = (prefixIndices[region.name] ?? 0) + 1;
+                : (localIndices[region.name] ?? 0);
+            localIndices[region.name] = (localIndices[region.name] ?? 0) + 1;
 
-            final key = _RegionFilterKey(
+            final int itemCount = animationLengths[region.name] ?? 1;
+
+            final double offsetX = sprite.region.offsetX;
+            final double offsetY = sprite.region.offsetY;
+            final double originalWidth = sprite.region.originalWidth;
+            final double originalHeight = sprite.region.originalHeight;
+
+            final _RegionFilterKey bakeKey = _RegionFilterKey(
               sprite.image,
               sprite.src,
               request.filter,
               request.decorator,
               itemIndex,
+              itemCount,
+              offsetX,
+              offsetY,
+              originalWidth,
+              originalHeight,
             );
-            groupedTasks
-                .putIfAbsent(key, () => [])
-                .add(
-                  _PendingBake(
-                    sprite,
-                    prefix,
-                    region.name,
-                    request.filter,
-                    request.decorator,
-                    itemIndex,
-                  ),
-                );
+
+            final pending = _PendingBake(
+              sprite,
+              prefix,
+              region.name,
+              request.filter,
+              request.decorator,
+              itemIndex,
+              itemCount,
+              bakeKey,
+            );
+
+            groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
           }
         } else if (request is SpriteBakeRequest) {
-          final key = _RegionFilterKey(
+          final double offsetX = (request.sprite is TexturePackerSprite)
+              ? (request.sprite as TexturePackerSprite).region.offsetX
+              : 0;
+          final double offsetY = (request.sprite is TexturePackerSprite)
+              ? (request.sprite as TexturePackerSprite).region.offsetY
+              : 0;
+          final double originalWidth = (request.sprite is TexturePackerSprite)
+              ? (request.sprite as TexturePackerSprite).region.originalWidth
+              : request.sprite.src.width;
+          final double originalHeight = (request.sprite is TexturePackerSprite)
+              ? (request.sprite as TexturePackerSprite).region.originalHeight
+              : request.sprite.src.height;
+
+          final _RegionFilterKey bakeKey = _RegionFilterKey(
             request.sprite.image,
             request.sprite.src,
             request.filter,
             request.decorator,
             0,
+            1,
+            offsetX,
+            offsetY,
+            originalWidth,
+            originalHeight,
           );
-          groupedTasks
-              .putIfAbsent(key, () => [])
-              .add(
-                _PendingBake(
-                  request.sprite,
-                  prefix,
-                  request.name,
-                  request.filter,
-                  request.decorator,
-                  0,
-                ),
-              );
+          final pending = _PendingBake(
+            request.sprite,
+            prefix,
+            request.name,
+            request.filter,
+            request.decorator,
+            0,
+            1,
+            bakeKey,
+          );
+          groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
         } else if (request is ImageBakeRequest) {
           final sprite = Sprite(request.image);
-          final key = _RegionFilterKey(
+          final _RegionFilterKey bakeKey = _RegionFilterKey(
             sprite.image,
             sprite.src,
             request.filter,
             request.decorator,
             0,
+            1,
+            0,
+            0,
+            sprite.src.width,
+            sprite.src.height,
           );
-          groupedTasks
-              .putIfAbsent(key, () => [])
-              .add(
-                _PendingBake(
-                  sprite,
-                  prefix,
-                  request.name,
-                  request.filter,
-                  request.decorator,
-                  0,
-                ),
-              );
+          final pending = _PendingBake(
+            sprite,
+            prefix,
+            request.name,
+            request.filter,
+            request.decorator,
+            0,
+            1,
+            bakeKey,
+          );
+          groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
         }
       }
 
-      final List<_SpriteBakeInfo> spritesToBake = [];
+      final List<_PendingBake> spritesToBake = [];
       final Map<_RegionFilterKey, _SpriteBakeInfo> keyToInfo = {};
 
       // 2. Perform analysis - OPTIMIZED: only scan if decorator is present
@@ -265,24 +326,26 @@ class CompositeAtlasImpl implements CompositeAtlas {
             originalWidth: s.region.originalWidth,
             originalHeight: s.region.originalHeight,
             bakedImage: null,
+            itemIndex: first.itemIndex,
+            itemCount: first.itemCount,
+            bakeKey: key,
           );
         } else {
           // ANALYSIS PATH: Pre-render and scan (required for decorators/standalone sprites)
           info = await _SpriteBakeInfo.analyze(
+            key: key,
             sprite: first.sprite,
             filter: first.filter,
             decorator: first.decorator,
             prefix: first.prefix,
             name: first.name,
             itemIndex: first.itemIndex,
+            itemCount: first.itemCount,
           );
         }
 
         keyToInfo[key] = info;
-
-        for (final p in pending) {
-          spritesToBake.add(info.withIdentity(prefix: p.prefix, name: p.name));
-        }
+        spritesToBake.addAll(pending);
       }
 
       if (spritesToBake.isEmpty) {
@@ -376,41 +439,39 @@ class CompositeAtlasImpl implements CompositeAtlas {
         ..width = megaImage.width
         ..height = megaImage.height;
 
-      for (final info in spritesToBake) {
-        final key = _RegionFilterKey(
-          info.originalSprite.image,
-          info.originalSprite.src,
-          info.filter,
-          info.decorator,
-          info.itemIndex,
-        );
-        final pos = drawingPositions[key]!;
+      for (final pending in spritesToBake) {
+        final pos = drawingPositions[pending.bakeKey]!;
+        final bakeInfo = keyToInfo[pending.bakeKey]!;
 
         final newRegion = Region(
           page: megaPage,
-          name: info.nameInAtlas,
+          name: pending.name,
           left: pos.dx,
           top: pos.dy,
-          width: info.trimmedSrc.width,
-          height: info.trimmedSrc.height,
-          offsetX: info.offsetX,
-          offsetY: info.offsetY,
-          originalWidth: info.originalWidth,
-          originalHeight: info.originalHeight,
+          width: bakeInfo.trimmedSrc.width,
+          height: bakeInfo.trimmedSrc.height,
+          offsetX: bakeInfo.offsetX,
+          offsetY: bakeInfo.offsetY,
+          originalWidth: bakeInfo.originalWidth,
+          originalHeight: bakeInfo.originalHeight,
           degrees: 0,
           rotate: false,
-          index: (info.originalSprite is TexturePackerSprite)
-              ? (info.originalSprite as TexturePackerSprite).region.index
-              : -1,
+          index:
+              (pending.itemCount == 1 &&
+                  (pending.sprite is! TexturePackerSprite ||
+                      (pending.sprite as TexturePackerSprite).region.index ==
+                          -1))
+              ? -1
+              : (pending.itemIndex ?? -1),
         );
 
         final newSprite = TexturePackerSprite(newRegion);
         newSprite.srcSize = newSprite.originalSize;
 
         final baseKey = newRegion.index == -1
-            ? info.nameInAtlas
-            : '${info.nameInAtlas}#${newRegion.index}';
-        spriteMap['${info.prefix}$baseKey'] = newSprite;
+            ? pending.name
+            : '${pending.name}#${newRegion.index}';
+        spriteMap['${pending.prefix}$baseKey'] = newSprite;
       }
 
       return CompositeAtlasImpl._(megaImage, spriteMap);
@@ -506,6 +567,8 @@ class _SpriteBakeInfo {
   final double originalHeight;
   final ui.Image? bakedImage;
   final int? itemIndex;
+  final int? itemCount;
+  final _RegionFilterKey bakeKey;
 
   _SpriteBakeInfo({
     required this.originalSprite,
@@ -520,6 +583,8 @@ class _SpriteBakeInfo {
     required this.originalHeight,
     this.bakedImage,
     this.itemIndex,
+    this.itemCount,
+    required this.bakeKey,
   });
 
   /// Creates a copy of this info with a different prefix and name.
@@ -537,17 +602,21 @@ class _SpriteBakeInfo {
       originalHeight: originalHeight,
       bakedImage: bakedImage,
       itemIndex: itemIndex,
+      itemCount: itemCount,
+      bakeKey: bakeKey,
     );
   }
 
   /// Analyzes a sprite to compute its non-transparent bounding box for trimming.
   static Future<_SpriteBakeInfo> analyze({
+    required _RegionFilterKey key,
     required Sprite sprite,
     required ui.ColorFilter? filter,
     required Decorator? decorator,
     required String prefix,
     required String name,
     required int? itemIndex,
+    required int? itemCount,
   }) async {
     try {
       ui.Image targetImage = sprite.image;
@@ -582,6 +651,7 @@ class _SpriteBakeInfo {
               ),
               localSize: sprite.src.size,
               itemIndex: itemIndex,
+              itemCount: itemCount,
             ),
           );
         }
@@ -686,6 +756,8 @@ class _SpriteBakeInfo {
             : sprite.src.height,
         bakedImage: isTemporary ? targetImage : null,
         itemIndex: itemIndex,
+        itemCount: itemCount,
+        bakeKey: key,
       );
     } catch (e, stack) {
       // ignore: avoid_print
@@ -707,7 +779,10 @@ class _SpriteBakeInfo {
         originalHeight: (sprite is TexturePackerSprite)
             ? sprite.region.originalHeight
             : sprite.src.height,
+        bakedImage: null,
         itemIndex: itemIndex,
+        itemCount: itemCount,
+        bakeKey: key,
       );
     }
   }
@@ -719,14 +794,24 @@ class _RegionFilterKey {
   final ui.ColorFilter? filter;
   final Decorator? decorator;
   final int? itemIndex;
+  final int? itemCount;
+  final double offsetX;
+  final double offsetY;
+  final double originalWidth;
+  final double originalHeight;
 
   _RegionFilterKey(
     this.image,
     this.src,
     this.filter,
-    this.decorator, [
+    this.decorator,
     this.itemIndex,
-  ]);
+    this.itemCount,
+    this.offsetX,
+    this.offsetY,
+    this.originalWidth,
+    this.originalHeight,
+  );
 
   double get width => src.width;
   double get height => src.height;
@@ -739,7 +824,12 @@ class _RegionFilterKey {
           src == other.src &&
           filter == other.filter &&
           decorator == other.decorator &&
-          (decorator is! AtlasDecorator || itemIndex == other.itemIndex));
+          offsetX == other.offsetX &&
+          offsetY == other.offsetY &&
+          originalWidth == other.originalWidth &&
+          originalHeight == other.originalHeight &&
+          (decorator is! AtlasDecorator ||
+              (itemIndex == other.itemIndex && itemCount == other.itemCount)));
 
   @override
   int get hashCode => Object.hash(
@@ -747,7 +837,11 @@ class _RegionFilterKey {
     src,
     filter,
     decorator,
-    decorator is AtlasDecorator ? itemIndex : null,
+    offsetX,
+    offsetY,
+    originalWidth,
+    originalHeight,
+    decorator is AtlasDecorator ? Object.hash(itemIndex, itemCount) : null,
   );
 }
 
@@ -759,6 +853,8 @@ class _PendingBake {
   final ui.ColorFilter? filter;
   final Decorator? decorator;
   final int? itemIndex;
+  final int? itemCount;
+  final _RegionFilterKey bakeKey;
 
   _PendingBake(
     this.sprite,
@@ -767,5 +863,7 @@ class _PendingBake {
     this.filter,
     this.decorator,
     this.itemIndex,
+    this.itemCount,
+    this.bakeKey,
   );
 }
