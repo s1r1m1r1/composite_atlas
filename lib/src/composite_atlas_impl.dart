@@ -384,6 +384,9 @@ class CompositeAtlasImpl implements CompositeAtlas {
   }
 
   @override
+  List<String> get allSpriteNames => _spriteMap.keys.toList();
+
+  @override
   Sprite? findSpriteByName(String name) {
     if (_spriteMap.containsKey(name)) return _spriteMap[name];
     final lowerName = name.toLowerCase();

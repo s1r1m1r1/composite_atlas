@@ -11,6 +11,7 @@ abstract class CompositeAtlas {
   Sprite? findSpriteByName(String name);
   List<Sprite> findSpritesByName(String name);
   void dispose();
+  List<String> get allSpriteNames;
 
   /// Creates a [ui.ColorFilter] that shifts the hue by the given [radians].
   static ui.ColorFilter hue(double radians) =>
