@@ -15,6 +15,7 @@ class PendingBake {
   final int? itemIndex;
   final int? itemCount;
   final RegionFilterKey bakeKey;
+  final String? originalName;
 
   PendingBake(
     this.sprite,
@@ -24,8 +25,9 @@ class PendingBake {
     this.decorator,
     this.itemIndex,
     this.itemCount,
-    this.bakeKey,
-  );
+    this.bakeKey, {
+    this.originalName,
+  });
 }
 
 class RegionFilterKey {
@@ -73,16 +75,16 @@ class RegionFilterKey {
 
   @override
   int get hashCode => Object.hash(
-        image,
-        src,
-        filter,
-        decorator,
-        offsetX,
-        offsetY,
-        originalWidth,
-        originalHeight,
-        decorator is AtlasDecorator ? Object.hash(itemIndex, itemCount) : null,
-      );
+    image,
+    src,
+    filter,
+    decorator,
+    offsetX,
+    offsetY,
+    originalWidth,
+    originalHeight,
+    decorator is AtlasDecorator ? Object.hash(itemIndex, itemCount) : null,
+  );
 }
 
 class SpriteBakeInfo {
@@ -132,7 +134,7 @@ class SpriteBakeInfo {
     try {
       ui.Image targetImage = sprite.image;
       ui.Rect scanSrc = sprite.src;
-      const double margin = 10.0;
+      const double margin = 0.0;
       bool found = false;
 
       bool isTemporary = false;
