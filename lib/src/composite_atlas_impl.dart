@@ -48,7 +48,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
   Map<String, TexturePackerSprite> get spriteMap => _internalSpriteMap;
 
   CompositeAtlasImpl._(this.image, this._internalSpriteMap, this._prefixes)
-      : super(_internalSpriteMap.values.toSet().toList());
+    : super(_internalSpriteMap.values.toSet().toList());
 
   static CompositeAtlas fromAtlas(TexturePackerAtlas atlas) {
     final spriteMap = <String, TexturePackerSprite>{};
@@ -57,7 +57,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
           ? s.region.name
           : '${s.region.name}#${s.region.index}';
       spriteMap[name] = s;
-      
+
       if (s.region.name != name) {
         spriteMap[s.region.name] = s;
       }
@@ -286,8 +286,9 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
         if (key.decorator != null) {
           final decorator = key.decorator!;
-          final padding =
-              (decorator is BakePadding) ? (decorator as BakePadding).padding : EdgeInsets.zero;
+          final padding = (decorator is BakePadding)
+              ? (decorator as BakePadding).padding
+              : EdgeInsets.zero;
 
           final double targetW = info.effectiveWidth ?? info.trimmedSrc.width;
           final double targetH = info.effectiveHeight ?? info.trimmedSrc.height;
@@ -302,16 +303,23 @@ class CompositeAtlasImpl extends CompositeAtlas {
           );
 
           if (decorator is AtlasDecorator) {
-            (decorator as AtlasDecorator).updateAtlasContext(AtlasContext(
-              atlasImage: key.image,
-              srcRect: info.trimmedSrc,
-              atlasSize: ui.Size(
-                  key.image.width.toDouble(), key.image.height.toDouble()),
-              localSize: ui.Size(info.trimmedSrc.width, info.trimmedSrc.height),
-              itemIndex: key.itemIndex,
-              itemCount: key.itemCount,
-              padding: padding,
-            ));
+            (decorator as AtlasDecorator).updateAtlasContext(
+              AtlasContext(
+                atlasImage: key.image,
+                srcRect: info.trimmedSrc,
+                atlasSize: ui.Size(
+                  key.image.width.toDouble(),
+                  key.image.height.toDouble(),
+                ),
+                localSize: ui.Size(
+                  info.trimmedSrc.width,
+                  info.trimmedSrc.height,
+                ),
+                itemIndex: key.itemIndex,
+                itemCount: key.itemCount,
+                padding: padding,
+              ),
+            );
           }
 
           decorator.applyChain((canvas) {
@@ -327,10 +335,29 @@ class CompositeAtlasImpl extends CompositeAtlas {
           }, canvas);
 
           final baked = await recorder.endRecording().toImage(
-                targetW.ceil(),
-                targetH.ceil(),
-              );
-          info.bakedImage = baked;
+            targetW.ceil(),
+            targetH.ceil(),
+          );
+
+          final trimResult = await _trimImage(baked);
+          if (trimResult != null) {
+            if (trimResult.image != baked) {
+              baked.dispose();
+            }
+            final newInfo = BakeInfo(
+              info.trimmedSrc,
+              info.offsetX + trimResult.trimRect.left,
+              info.offsetY + trimResult.trimRect.top,
+              info.originalWidth,
+              info.originalHeight,
+              effectiveWidth: trimResult.trimRect.width,
+              effectiveHeight: trimResult.trimRect.height,
+            );
+            newInfo.bakedImage = trimResult.image;
+            info = newInfo;
+          } else {
+            info.bakedImage = baked;
+          }
         }
 
         keyToInfo[key] = info;
@@ -394,7 +421,11 @@ class CompositeAtlasImpl extends CompositeAtlas {
           canvas.drawImageRect(
             info.bakedImage!,
             ui.Rect.fromLTWH(
-                0, 0, info.bakedImage!.width.toDouble(), info.bakedImage!.height.toDouble()),
+              0,
+              0,
+              info.bakedImage!.width.toDouble(),
+              info.bakedImage!.height.toDouble(),
+            ),
             dst,
             basePaint,
           );
@@ -404,9 +435,9 @@ class CompositeAtlasImpl extends CompositeAtlas {
       }
 
       final megaImage = await recorder.endRecording().toImage(
-            maxWidth.ceil(),
-            totalHeight.ceil(),
-          );
+        maxWidth.ceil(),
+        totalHeight.ceil(),
+      );
 
       for (final info in keyToInfo.values) {
         info.bakedImage?.dispose();
@@ -437,7 +468,8 @@ class CompositeAtlasImpl extends CompositeAtlas {
           originalHeight: bakeInfo.originalHeight,
           degrees: 0,
           rotate: false,
-          index: (pending.itemCount == 1 &&
+          index:
+              (pending.itemCount == 1 &&
                   (pending.itemIndex == null || pending.itemIndex == -1) &&
                   (pending.sprite is! TexturePackerSprite ||
                       (pending.sprite as TexturePackerSprite).region.index ==
@@ -453,7 +485,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
             ? newRegion.name
             : '${newRegion.name}#${newRegion.index}';
         spriteMap[primaryKey] = newSprite;
-        
+
         // Also map original name with prefix for direct frame lookups
         if (pending.originalName != null) {
           final prefOrig = '${pending.prefix}${pending.originalName}';
@@ -475,7 +507,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
   @override
   TexturePackerSprite? findSpriteByName(String name) {
     if (_internalSpriteMap.containsKey(name)) return _internalSpriteMap[name];
-    
+
     // Try prefix-unaware lookup
     for (final prefix in _prefixes) {
       final combined = '$prefix$name';
@@ -483,7 +515,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
         return _internalSpriteMap[combined];
       }
     }
-    
+
     return super.findSpriteByName(name);
   }
 
@@ -494,7 +526,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
     if (results.isNotEmpty) {
       return results.cast<TexturePackerSprite>().toList();
     }
-    
+
     // 2. Try prefix-aware lookup (one prefix at a time to prevent mixing)
     for (final prefix in _prefixes) {
       final combined = '$prefix$name';
@@ -507,13 +539,13 @@ class CompositeAtlasImpl extends CompositeAtlas {
     // 3. Fallback to manual search (legacy or indexed lookups)
     final Set<TexturePackerSprite> found = {};
     final lookupNames = <String>{name, ..._prefixes.map((p) => '$p$name')};
-    
+
     for (final lookup in lookupNames) {
       // Check if the lookup exactly matches a key in the internal map
       if (_internalSpriteMap.containsKey(lookup)) {
         found.add(_internalSpriteMap[lookup]!);
       }
-      
+
       // Check for indexed keys (e.g., name#0, name#1)
       final indexedPattern = RegExp('^${RegExp.escape(lookup)}#(\\d+)\$');
       for (final key in _internalSpriteMap.keys) {
@@ -521,17 +553,19 @@ class CompositeAtlasImpl extends CompositeAtlas {
           found.add(_internalSpriteMap[key]!);
         }
       }
-      
+
       // If we found something for this specific prefix/lookup, return it without mixing others
       if (found.isNotEmpty) break;
     }
-    
+
     final casted = found.toList();
     if (casted.isEmpty) {
       // ignore: avoid_print
-      print('[CompositeAtlas] Sprite animation lookup failed for: "$name" (checked ${_internalSpriteMap.length} entries)');
+      print(
+        '[CompositeAtlas] Sprite animation lookup failed for: "$name" (checked ${_internalSpriteMap.length} entries)',
+      );
     }
-    
+
     casted.sort((a, b) => a.region.index.compareTo(b.region.index));
     return casted;
   }
@@ -548,18 +582,14 @@ class CompositeAtlasImpl extends CompositeAtlas {
     if (animationSprites.isEmpty) {
       throw Exception('No sprites found with name "$name" in atlas');
     }
-    
+
     var filtered = animationSprites;
     if (useIndexedSpritesOnly) {
       filtered = animationSprites.where((s) => s.region.index >= 0).toList();
       if (filtered.isEmpty) filtered = animationSprites;
     }
 
-    return SpriteAnimation.spriteList(
-      filtered,
-      stepTime: stepTime,
-      loop: loop,
-    );
+    return SpriteAnimation.spriteList(filtered, stepTime: stepTime, loop: loop);
   }
 
   static ui.ColorFilter hueFilter(double radians) {
@@ -569,19 +599,84 @@ class CompositeAtlasImpl extends CompositeAtlas {
       0.213 + 0.787 * cosT - 0.213 * sinT,
       0.715 - 0.715 * cosT - 0.715 * sinT,
       0.072 - 0.072 * cosT + 0.928 * sinT,
-      0, 0,
+      0,
+      0,
       0.213 - 0.213 * cosT + 0.143 * sinT,
       0.715 + 0.285 * cosT + 0.140 * sinT,
       0.072 - 0.072 * cosT - 0.283 * sinT,
-      0, 0,
+      0,
+      0,
       0.213 - 0.213 * cosT - 0.787 * sinT,
       0.715 - 0.715 * cosT + 0.715 * sinT,
       0.072 + 0.928 * cosT + 0.072 * sinT,
-      0, 0,
-      0, 0, 0, 1, 0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
     ]);
   }
 
   @override
   void dispose() => image.dispose();
+
+  static Future<({ui.Image image, ui.Rect trimRect})?> _trimImage(
+    ui.Image image,
+  ) async {
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (byteData == null) return null;
+
+    final buffer = byteData.buffer.asUint8List();
+    final int width = image.width;
+    final int height = image.height;
+
+    int minX = width;
+    int maxX = -1;
+    int minY = height;
+    int maxY = -1;
+    bool found = false;
+
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final int index = (y * width + x) * 4 + 3;
+        if (buffer[index] > 3) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          found = true;
+        }
+      }
+    }
+
+    if (!found) return null;
+
+    final trimRect = ui.Rect.fromLTRB(
+      minX.toDouble(),
+      minY.toDouble(),
+      (maxX + 1).toDouble(),
+      (maxY + 1).toDouble(),
+    );
+
+    if (minX == 0 && minY == 0 && maxX == width - 1 && maxY == height - 1) {
+      return (image: image, trimRect: trimRect);
+    }
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    canvas.drawImageRect(
+      image,
+      trimRect,
+      ui.Rect.fromLTWH(0, 0, trimRect.width, trimRect.height),
+      ui.Paint(),
+    );
+    final cropped = await recorder.endRecording().toImage(
+      trimRect.width.toInt(),
+      trimRect.height.toInt(),
+    );
+
+    return (image: cropped, trimRect: trimRect);
+  }
 }
