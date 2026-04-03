@@ -310,6 +310,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
               localSize: ui.Size(info.trimmedSrc.width, info.trimmedSrc.height),
               itemIndex: key.itemIndex,
               itemCount: key.itemCount,
+              padding: padding,
             ));
           }
 

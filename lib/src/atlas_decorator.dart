@@ -12,6 +12,10 @@ class AtlasContext {
   final int? itemIndex;
   final int? itemCount;
 
+  /// The total padding applied to the current drawing canvas.
+  /// This is the sum of all [BakePadding]s in the decorator chain.
+  final EdgeInsets padding;
+
   AtlasContext({
     required this.atlasImage,
     required this.srcRect,
@@ -19,6 +23,7 @@ class AtlasContext {
     required this.localSize,
     this.itemIndex,
     this.itemCount,
+    this.padding = EdgeInsets.zero,
   });
 }
 
