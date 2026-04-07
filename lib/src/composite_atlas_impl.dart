@@ -5,7 +5,6 @@ import 'package:flutter/painting.dart';
 
 import 'package:flame/cache.dart';
 import 'package:flame/components.dart';
-import 'package:flame/rendering.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 
 import 'composite_atlas.dart';
