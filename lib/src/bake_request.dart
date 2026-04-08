@@ -4,12 +4,21 @@ import 'package:flame/rendering.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 
 /// Represents a request to bake assets into a [CompositeAtlas].
-abstract class BakeRequest {
+sealed class BakeRequest {
   final ui.ColorFilter? filter;
   final Decorator? decorator;
   final String? keyPrefix;
 
-  BakeRequest({this.filter, this.decorator, this.keyPrefix});
+  /// A function that transforms the sprite name during baking.
+  /// Useful for renaming mirrored sprites (e.g. '.right' -> '.left').
+  final String Function(String name)? nameTransformer;
+
+  BakeRequest({
+    this.filter,
+    this.decorator,
+    this.keyPrefix,
+    this.nameTransformer,
+  });
 }
 
 /// Request to bake an entire [TexturePackerAtlas] (optionally filtered by whitelist).
@@ -22,6 +31,7 @@ class AtlasBakeRequest extends BakeRequest {
     super.filter,
     super.decorator,
     super.keyPrefix,
+    super.nameTransformer,
     this.whiteList,
   });
 }
@@ -84,6 +94,7 @@ class SpriteBakeRequest extends BakeRequest {
     super.filter,
     super.decorator,
     super.keyPrefix,
+    super.nameTransformer,
     this.sourceRegion,
   });
 }
@@ -99,5 +110,6 @@ class ImageBakeRequest extends BakeRequest {
     super.filter,
     super.decorator,
     super.keyPrefix,
+    super.nameTransformer,
   });
 }

@@ -4,10 +4,36 @@ import 'package:flame/components.dart';
 import 'package:flame/rendering.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 import 'package:flutter/painting.dart';
+import 'package:meta/meta.dart';
 import 'atlas_decorator.dart';
 import 'bake_request.dart';
 
+@internal
+class BakeInfo {
+  final ui.Rect trimmedSrc;
+  final double offsetX;
+  final double offsetY;
+  final double originalWidth;
+  final double originalHeight;
+  ui.Image? bakedImage;
+  bool rotate;
+  double? effectiveWidth;
+  double? effectiveHeight;
+
+  BakeInfo(
+    this.trimmedSrc,
+    this.offsetX,
+    this.offsetY,
+    this.originalWidth,
+    this.originalHeight, {
+    this.rotate = false,
+    this.effectiveWidth,
+    this.effectiveHeight,
+  });
+}
+
 /// A internal record of a request to bake a sprite with specific settings.
+@internal
 class PendingBake {
   final Sprite sprite;
   final String prefix;

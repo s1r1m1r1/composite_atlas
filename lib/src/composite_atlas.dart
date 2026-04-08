@@ -38,9 +38,7 @@ abstract class CompositeAtlas extends TexturePackerAtlas {
     bool useIndexedSpritesOnly = false,
   });
 
-  /// Creates a [ui.ColorFilter] that shifts the hue by the given [radians].
-  static ui.ColorFilter hue(double radians) =>
-      CompositeAtlasImpl.hueFilter(radians);
+  String generateGDXAtlasContent(String imageName);
 
   /// Bakes multiple [BakeRequest] instances into a single [CompositeAtlas].
   ///
