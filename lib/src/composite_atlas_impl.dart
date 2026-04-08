@@ -751,8 +751,94 @@ class CompositeAtlasImpl extends CompositeAtlas {
     // ignore: avoid_print
     print('[CompositeAtlas] Unique slots to bake: ${keyToInfo.length}');
 
+    // 3.5. Deduplicate sprites with identical visual content
+    // Compare actual pixel data from the source image, not just metadata.
+    // This catches duplicates even when they have different bounds/positions in the atlas.
+    Future<String> _computePixelHash(
+      RegionFilterKey key,
+      PendingBake pending,
+    ) async {
+      // For spritesheets and GDX atlases: compute pixel-level hash
+      final sw = key.src.width.toInt();
+      final sh = key.src.height.toInt();
+      final sx = key.src.left.toInt();
+      final sy = key.src.top.toInt();
+
+      final info = keyToInfo[key]!;
+      final ew = (info.effectiveWidth ?? sw).toInt();
+      final eh = (info.effectiveHeight ?? sh).toInt();
+      final ox = info.offsetX.toInt();
+      final oy = info.offsetY.toInt();
+      final ow = info.originalWidth.toInt();
+      final oh = info.originalHeight.toInt();
+      final rot = info.rotate ? 1 : 0;
+      final metaSig = '${ew}_${eh}_${ox}_${oy}_${ow}_${oh}_${rot}_${sw}_${sh}';
+
+      // Pixel-level hash
+      int pixelHash = 0;
+      final byteData = await key.image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      );
+      if (byteData != null) {
+        final buffer = byteData.buffer.asUint8List();
+        for (int y = 0; y < sh; y++) {
+          for (int x = 0; x < sw; x++) {
+            final idx = ((sy + y) * key.image.width + (sx + x)) * 4;
+            final r = buffer[idx];
+            final g = buffer[idx + 1];
+            final b = buffer[idx + 2];
+            final a = buffer[idx + 3];
+            pixelHash = (pixelHash * 31 + r) ^ (g * 37) ^ (b * 41) ^ (a * 43);
+          }
+        }
+      }
+      return '${metaSig}_ph${pixelHash}_img${key.image.hashCode}';
+    }
+
+    // Build a map: bakeKey → first pending for that key
+    final Map<RegionFilterKey, PendingBake> keyToPending = {};
+    for (final pending in spritesToBake) {
+      if (!keyToPending.containsKey(pending.bakeKey)) {
+        keyToPending[pending.bakeKey] = pending;
+      }
+    }
+
+    // Compute signatures for all keys
+    final Map<RegionFilterKey, String> keySigs = {};
+    for (final key in keyToInfo.keys) {
+      keySigs[key] = await _computePixelHash(key, keyToPending[key]!);
+    }
+
+    // Group duplicates
+    final Map<RegionFilterKey, RegionFilterKey> dedupMap = {};
+    final Set<RegionFilterKey> masterKeys = {};
+    for (final key in keyToInfo.keys) {
+      final sig = keySigs[key]!;
+      final existing = masterKeys.where((m) => keySigs[m] == sig).firstOrNull;
+      if (existing != null) {
+        dedupMap[key] = existing;
+        // ignore: avoid_print
+        print(
+          '[CompositeAtlas] Dedup: ${sig.substring(0, sig.indexOf('_img'))} → master',
+        );
+      } else {
+        masterKeys.add(key);
+      }
+    }
+
+    if (dedupMap.isNotEmpty) {
+      // ignore: avoid_print
+      print(
+        '[CompositeAtlas] Dedup: ${dedupMap.length} duplicate(s) will reuse master slots',
+      );
+    }
+    // ignore: avoid_print
+    print(
+      '[CompositeAtlas] After dedup: ${masterKeys.length} master slots (from ${keyToInfo.length})',
+    );
+
     // 4. Sort sprites for better packing density
-    final List<RegionFilterKey> sortedKeys = keyToInfo.keys.toList();
+    final List<RegionFilterKey> sortedKeys = masterKeys.toList();
     if (allowRotation) {
       // For rotation: sort by shortest side (descending) — better for mixed sizes
       sortedKeys.sort((a, b) {
@@ -870,7 +956,8 @@ class CompositeAtlasImpl extends CompositeAtlas {
     final canvas = ui.Canvas(recorder);
     final basePaint = ui.Paint()..filterQuality = ui.FilterQuality.none;
 
-    for (final key in sortedKeys) {
+    // Only render master slots — duplicates will reference the same pixels
+    for (final key in masterKeys) {
       final pos = drawingPositions[key]!;
       final info = keyToInfo[key]!;
 
@@ -956,8 +1043,10 @@ class CompositeAtlasImpl extends CompositeAtlas {
       ..height = megaImage.height;
 
     for (final pending in spritesToBake) {
-      final pos = drawingPositions[pending.bakeKey]!;
-      final bakeInfo = keyToInfo[pending.bakeKey]!;
+      // Resolve deduplication: use master key's position if this is a duplicate
+      final effectiveKey = dedupMap[pending.bakeKey] ?? pending.bakeKey;
+      final pos = drawingPositions[effectiveKey]!;
+      final bakeInfo = keyToInfo[effectiveKey]!;
 
       final newRegion = Region(
         page: megaPage,
