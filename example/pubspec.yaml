@@ -37,7 +37,6 @@ dependencies:
   cupertino_icons: ^1.0.8
   flame: ^1.20.0
   flame_texturepacker: ^5.1.0
-  file_selector: ^1.0.3
   composite_atlas:
     path: ../
 

@@ -1,15 +1,51 @@
+import 'dart:async';
+
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
 import 'package:flame/sprite.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 import 'package:flutter/material.dart';
 import 'package:composite_atlas/composite_atlas.dart';
-import 'package:file_selector/file_selector.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-void main() {
-  runApp(const MaterialApp(home: HomeScreen()));
+import 'src/home_screen.dart';
+
+Future<void> main() async {
+  await runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      ui.PlatformDispatcher.instance.onError = (error, stack) {
+        // if (kDebugMode) {
+        debugPrintStack(stackTrace: stack, label: 'PlatformDispatcher $error');
+        // } else {
+        // Sentry.captureException(details.exception, stackTrace: details.stack);
+        // FirebaseCrashlytics.instance.recordError(details.exception, details.stack);
+        // }
+        return true;
+      };
+
+      FlutterError.onError = (details) {
+        // if (kDebugMode) {
+        //   // In debug mode, simply print the error to the console
+        FlutterError.dumpErrorToConsole(details);
+        // } else {
+        //   // Sentry.captureException(details.exception, stackTrace: details.stack);
+        //   // FirebaseCrashlytics.instance.recordError(details.exception, details.stack);
+        // }
+      };
+      runApp(const MaterialApp(home: HomeScreen()));
+    },
+    (error, stackTrace) {
+      // if (kDebugMode) {
+      debugPrintStack(stackTrace: stackTrace, label: 'runZonedGuarded $error');
+      // } else {
+      // Sentry.captureException(error, stackTrace: stackTrace);
+      // FirebaseCrashlytics.instance.recordError(error, stackTrace);
+      // }
+    },
+  );
 }
 
 //region Models
@@ -111,250 +147,6 @@ final List<AtlasSet> atlasSets = [
   ),
 ];
 
-final List<AppPage> appPages = [
-  AppPage(
-    title: 'Atlas Comparison',
-    icon: Icons.compare_arrows,
-    builder: (_) => const AtlasComparisonScreen(),
-  ),
-  AppPage(
-    title: 'Raw Atlas Viewer',
-    icon: Icons.grid_view,
-    builder: (_) => const RawAtlasViewerScreen(),
-  ),
-  AppPage(
-    title: 'Settings',
-    icon: Icons.settings,
-    builder: (_) => const SettingsScreen(),
-  ),
-];
-//endregion
-
-//region Home Screen
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
-      appBar: AppBar(
-        title: const Text('Composite Atlas Demo'),
-        backgroundColor: Colors.black,
-      ),
-      body: GridView.count(
-        crossAxisCount: 2,
-        padding: const EdgeInsets.all(16),
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        children: appPages
-            .map(
-              (page) => Card(
-                color: Colors.grey[900],
-                child: InkWell(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: page.builder),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(page.icon, size: 64, color: Colors.blueAccent),
-                      const SizedBox(height: 12),
-                      Text(
-                        page.title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-}
-//endregion
-
-//region Atlas Comparison Screen
-class AtlasComparisonScreen extends StatefulWidget {
-  const AtlasComparisonScreen({super.key});
-
-  @override
-  State<AtlasComparisonScreen> createState() => _AtlasComparisonScreenState();
-}
-
-class _AtlasComparisonScreenState extends State<AtlasComparisonScreen> {
-  int _setIndex = 1;
-
-  AtlasSet get _set => atlasSets[_setIndex];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
-      appBar: AppBar(
-        title: Text(_set.name),
-        backgroundColor: Colors.black,
-        actions: [
-          DropdownButton<int>(
-            value: _setIndex,
-            dropdownColor: Colors.black,
-            style: const TextStyle(color: Colors.white),
-            items: [
-              for (int i = 0; i < atlasSets.length; i++)
-                DropdownMenuItem(value: i, child: Text('Exp $i')),
-            ],
-            onChanged: (v) => setState(() => _setIndex = v!),
-          ),
-          IconButton(
-            icon: const Icon(Icons.grid_view),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => RawAtlasViewPage(atlasSet: _set),
-              ),
-            ),
-            tooltip: 'View Baked Atlas',
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: ComparisonView(key: ValueKey('comp_$_setIndex'), set: _set),
-    );
-  }
-}
-//endregion
-
-//region Raw Atlas Viewer Screen
-class RawAtlasViewerScreen extends StatefulWidget {
-  const RawAtlasViewerScreen({super.key});
-
-  @override
-  State<RawAtlasViewerScreen> createState() => _RawAtlasViewerScreenState();
-}
-
-class _RawAtlasViewerScreenState extends State<RawAtlasViewerScreen> {
-  int _setIndex = 1;
-
-  AtlasSet get _set => atlasSets[_setIndex];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
-      appBar: AppBar(
-        title: const Text('Raw Atlas Viewer'),
-        backgroundColor: Colors.black,
-        actions: [
-          DropdownButton<int>(
-            value: _setIndex,
-            dropdownColor: Colors.black,
-            style: const TextStyle(color: Colors.white),
-            items: [
-              for (int i = 0; i < atlasSets.length; i++)
-                DropdownMenuItem(value: i, child: Text('Exp $i')),
-            ],
-            onChanged: (v) => setState(() => _setIndex = v!),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: RawAtlasViewPage(key: ValueKey('raw_$_setIndex'), atlasSet: _set),
-    );
-  }
-}
-//endregion
-
-//region Settings Screen
-class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
-
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends State<SettingsScreen> {
-  double _maxAtlasWidth = 128.0;
-  bool _allowRotation = true;
-  bool _forceSquare = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
-      appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: Colors.black,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            color: Colors.grey[900],
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Atlas Configuration',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Max Atlas Width: ${_maxAtlasWidth.toInt()}',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  Slider(
-                    value: _maxAtlasWidth,
-                    min: 64,
-                    max: 512,
-                    divisions: 14,
-                    label: _maxAtlasWidth.toInt().toString(),
-                    activeColor: Colors.blueAccent,
-                    onChanged: (v) => setState(() => _maxAtlasWidth = v),
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    title: const Text(
-                      'Allow Rotation',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    value: _allowRotation,
-                    activeColor: Colors.blueAccent,
-                    onChanged: (v) => setState(() => _allowRotation = v),
-                  ),
-                  SwitchListTile(
-                    title: const Text(
-                      'Force Square',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    value: _forceSquare,
-                    activeColor: Colors.blueAccent,
-                    onChanged: (v) => setState(() => _forceSquare = v),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-//endregion
-
 //region Shared Widgets
 class ComparisonView extends StatefulWidget {
   final AtlasSet set;
@@ -429,34 +221,62 @@ class _RawAtlasViewPageState extends State<RawAtlasViewPage> {
 
   Future<void> _exportAtlas() async {
     if (_game.bakedAtlas == null) return;
-    final image = _game.bakedAtlas!.image;
+    final atlas = _game.bakedAtlas!;
+    final image = atlas.image;
     setState(() => _exporting = true);
     try {
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       final bytes = byteData!.buffer.asUint8List();
-      final result = await getSaveLocation(
-        acceptedTypeGroups: [
-          const XTypeGroup(label: 'PNG Image', extensions: ['png']),
-        ],
-        suggestedName: 'baked_atlas.png',
-      );
-      if (result == null) return;
-      final file = File(result.path);
-      await file.writeAsBytes(bytes);
+
+      // Save to the current working directory of the app
+      final exportsDir = 'composite_atlas_export';
+      await Directory(exportsDir).create(recursive: true);
+
+      final pngFile = File('$exportsDir/baked_atlas.png');
+      await pngFile.writeAsBytes(bytes);
+
+      final sb = StringBuffer();
+      sb.writeln('baked_atlas.png');
+      sb.writeln('size:${image.width},${image.height}');
+      sb.writeln('format:RGBA8888');
+      sb.writeln('filter:Nearest,Nearest');
+      sb.writeln('repeat:none');
+      for (final sprite in atlas.sprites) {
+        final r = sprite.region;
+        sb.writeln(r.name);
+        if (r.index != -1) sb.writeln('  index:${r.index}');
+        sb.writeln('  rotate:${r.rotate}');
+        sb.writeln('  xy:${r.left.toInt()},${r.top.toInt()}');
+        sb.writeln('  size:${r.width.toInt()},${r.height.toInt()}');
+        sb.writeln(
+          '  orig:${r.originalWidth.toInt()},${r.originalHeight.toInt()}',
+        );
+        sb.writeln('  offset:${r.offsetX.toInt()},${r.offsetY.toInt()}');
+      }
+      final atlasFile = File('$exportsDir/baked_atlas.atlas');
+      await atlasFile.writeAsString(sb.toString());
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Saved: ${file.path}'),
+            content: Text('Saved:\n$exportsDir'),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 8),
+            action: SnackBarAction(
+              label: 'Open',
+              textColor: Colors.white,
+              onPressed: () => Process.run('open', [exportsDir]),
+            ),
           ),
         );
       }
-    } catch (e) {
+    } catch (e, stack) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Export failed: $e'),
+            content: Text('Export failed: $e\n$stack'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }

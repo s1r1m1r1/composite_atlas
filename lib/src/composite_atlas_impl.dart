@@ -641,16 +641,21 @@ class CompositeAtlasImpl extends CompositeAtlas {
       final isGdxSource = template is TexturePackerSprite && !hasExplicitRegion;
 
       if (isGdxSource && decorator == null) {
-        // Use GDX metadata as-is
+        // Use GDX metadata as-is, but with visual (un-rotated) dimensions
+        // for packing. GDX stores rotated sprites with swapped w/h in src,
+        // so the visual size is src.height × src.width.
+        final visualW = isRotated ? key.src.height : key.src.width;
+        final visualH = isRotated ? key.src.width : key.src.height;
+
         info = BakeInfo(
-          key.src, // trimmed bounds from GDX
+          key.src, // trimmed bounds from GDX (may be rotated)
           key.offsetX, // original GDX offset X
           key.offsetY, // original GDX offset Y
           key.originalWidth,
           key.originalHeight,
           rotate: isRotated,
-          effectiveWidth: key.src.width,
-          effectiveHeight: key.src.height,
+          effectiveWidth: visualW,
+          effectiveHeight: visualH,
         );
         // No bakedImage needed — we'll draw directly from the source atlas
       } else if (needsAlphaAnalysis) {
