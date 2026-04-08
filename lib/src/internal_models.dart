@@ -1,8 +1,8 @@
-import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flame/components.dart';
 import 'package:flame/rendering.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
+import 'package:flutter/painting.dart';
 import 'atlas_decorator.dart';
 
 /// A internal record of a request to bake a sprite with specific settings.
@@ -137,86 +137,109 @@ class SpriteBakeInfo {
       const double margin = 0.0;
       bool found = false;
 
-      bool isTemporary = false;
-      if (decorator != null) {
-        final double width = sprite.src.width + margin * 2;
-        final double height = sprite.src.height + margin * 2;
+      // Use the sprite's originalSize (visual frame) as the target for analysis.
+      final double visualH = sprite.originalSize.y;
 
-        final recorder = ui.PictureRecorder();
-        final canvas = ui.Canvas(recorder);
-        final paint = ui.Paint()..filterQuality = ui.FilterQuality.none;
-        if (filter != null) paint.colorFilter = filter;
+      final double width = sprite.originalSize.x + margin * 2;
+      final double height = visualH + margin * 2;
 
-        final drawRect = ui.Rect.fromLTWH(
-          margin,
-          margin,
-          sprite.src.width,
-          sprite.src.height,
+      final isRotated = sprite is TexturePackerSprite && sprite.region.rotate;
+      final bool needsAnalysis = decorator != null || isRotated;
+
+      if (!needsAnalysis) {
+        // Optimization: For simple, non-rotated, no-decorator sprites, 
+        // we can use the source data directly without any visual analysis.
+        return SpriteBakeInfo(
+          originalSprite: sprite,
+          filter: filter,
+          decorator: decorator,
+          prefix: prefix,
+          nameInAtlas: name,
+          trimmedSrc: sprite.src,
+          offsetX: (sprite is TexturePackerSprite) ? sprite.region.offsetX : 0,
+          offsetY: (sprite is TexturePackerSprite) ? sprite.region.offsetY : 0,
+          originalWidth: sprite.originalSize.x,
+          originalHeight: sprite.originalSize.y,
+          bakedImage: null,
+          itemIndex: itemIndex,
+          itemCount: itemCount,
+          bakeKey: key,
         );
-        if (decorator is AtlasDecorator) {
-          (decorator as AtlasDecorator).updateAtlasContext(
-            AtlasContext(
-              atlasImage: sprite.image,
-              srcRect: sprite.src,
-              atlasSize: ui.Size(
-                sprite.image.width.toDouble(),
-                sprite.image.height.toDouble(),
-              ),
-              localSize: sprite.src.size,
-              itemIndex: itemIndex,
-              itemCount: itemCount,
-            ),
-          );
-        }
-
-        decorator.applyChain((ui.Canvas c) {
-          c.drawImageRect(sprite.image, sprite.src, drawRect, paint);
-        }, canvas);
-
-        targetImage = await recorder.endRecording().toImage(
-          width.ceil().toInt(),
-          height.ceil().toInt(),
-        );
-        scanSrc = ui.Rect.fromLTWH(0, 0, width, height);
-        isTemporary = true;
       }
+
+      // If we are here, we need to create a temporary buffer (either for un-rotation or decoration)
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      final paint = ui.Paint()..filterQuality = ui.FilterQuality.none;
+      if (filter != null) paint.colorFilter = filter;
+
+      if (decorator is AtlasDecorator) {
+        (decorator as AtlasDecorator).updateAtlasContext(
+          AtlasContext(
+            atlasImage: sprite.image,
+            srcRect: sprite.src,
+            atlasSize: ui.Size(
+              sprite.image.width.toDouble(),
+              sprite.image.height.toDouble(),
+            ),
+            localSize: sprite.src.size,
+            itemIndex: itemIndex,
+            itemCount: itemCount,
+            padding: EdgeInsets.zero,
+          ),
+        );
+      }
+
+      void draw(ui.Canvas c) {
+        c.save();
+        c.translate(margin, margin);
+        
+        // Use the visual-frame size for 1:1 un-rotated rendering.
+        sprite.render(
+          c,
+          size: sprite.originalSize,
+          overridePaint: paint,
+        );
+        c.restore();
+      }
+
+      if (decorator != null) {
+        decorator.applyChain(draw, canvas);
+      } else {
+        draw(canvas);
+      }
+
+      targetImage = await recorder.endRecording().toImage(
+        width.ceil().toInt(),
+        height.ceil().toInt(),
+      );
+      scanSrc = ui.Rect.fromLTWH(0, 0, width, height);
 
       final byteData = await targetImage.toByteData(
         format: ui.ImageByteFormat.rawRgba,
       );
 
-      ui.Rect trimmedSrc = isTemporary
-          ? ui.Rect.fromLTWH(
-              margin,
-              margin,
-              sprite.src.width,
-              sprite.src.height,
-            )
-          : sprite.src;
+      final ui.Rect trimmedSrcDefault = scanSrc;
+      double offsetX = (sprite is TexturePackerSprite) ? sprite.region.offsetX : 0;
+      double offsetY = (sprite is TexturePackerSprite) ? sprite.region.offsetY : 0;
 
-      double offsetX = (sprite is TexturePackerSprite)
-          ? sprite.region.offsetX
-          : 0;
-      double offsetY = (sprite is TexturePackerSprite)
-          ? sprite.region.offsetY
-          : 0;
+      ui.Rect trimmedSrc = trimmedSrcDefault;
 
       if (byteData != null) {
         final buffer = byteData.buffer.asUint8List();
-        int minX = scanSrc.right.toInt();
-        int maxX = scanSrc.left.toInt();
-        int minY = scanSrc.bottom.toInt();
-        int maxY = scanSrc.top.toInt();
+        int minX = scanSrc.width.toInt();
+        int maxX = 0;
+        int minY = scanSrc.height.toInt();
+        int maxY = 0;
 
         final int startX = scanSrc.left.toInt();
         final int startY = scanSrc.top.toInt();
-        final int width = scanSrc.width.toInt();
-        final int height = scanSrc.height.toInt();
+        final int currentW = scanSrc.width.toInt();
+        final int currentH = scanSrc.height.toInt();
 
-        for (int y = 0; y < height; y++) {
-          for (int x = 0; x < width; x++) {
-            final index =
-                ((startY + y) * targetImage.width + (startX + x)) * 4 + 3;
+        for (int y = 0; y < currentH; y++) {
+          for (int x = 0; x < currentW; x++) {
+            final index = ((startY + y) * targetImage.width + (startX + x)) * 4 + 3;
             if (buffer[index] > 5) {
               if (x < minX) minX = x;
               if (x > maxX) maxX = x;
@@ -228,13 +251,6 @@ class SpriteBakeInfo {
         }
 
         if (found) {
-          final double baseOX = (sprite is TexturePackerSprite)
-              ? sprite.region.offsetX
-              : 0;
-          final double baseOY = (sprite is TexturePackerSprite)
-              ? sprite.region.offsetY
-              : 0;
-
           trimmedSrc = ui.Rect.fromLTWH(
             startX + minX.toDouble(),
             startY + minY.toDouble(),
@@ -242,13 +258,8 @@ class SpriteBakeInfo {
             (maxY - minY + 1).toDouble(),
           );
 
-          if (isTemporary) {
-            offsetX = baseOX + (minX.toDouble() - margin);
-            offsetY = baseOY + (minY.toDouble() - margin);
-          } else {
-            offsetX = baseOX + minX.toDouble();
-            offsetY = baseOY + minY.toDouble();
-          }
+          offsetX = minX.toDouble() - margin;
+          offsetY = minY.toDouble() - margin;
         }
       }
 
@@ -261,22 +272,16 @@ class SpriteBakeInfo {
         trimmedSrc: trimmedSrc,
         offsetX: offsetX,
         offsetY: offsetY,
-        originalWidth: (sprite is TexturePackerSprite)
-            ? sprite.region.originalWidth
-            : sprite.src.width,
-        originalHeight: (sprite is TexturePackerSprite)
-            ? sprite.region.originalHeight
-            : sprite.src.height,
-        bakedImage: isTemporary ? targetImage : null,
+        originalWidth: sprite.originalSize.x,
+        originalHeight: sprite.originalSize.y,
+        bakedImage: targetImage,
         itemIndex: itemIndex,
         itemCount: itemCount,
         bakeKey: key,
       );
     } catch (e, stack) {
       // ignore: avoid_print
-      print(
-        '[CompositeAtlas ERROR] Failed to analyze sprite "$name": $e\n$stack',
-      );
+      print('[CompositeAtlas ERROR] Failed to analyze sprite "$name": $e\n$stack');
       return SpriteBakeInfo(
         originalSprite: sprite,
         filter: filter,
@@ -286,12 +291,8 @@ class SpriteBakeInfo {
         trimmedSrc: sprite.src,
         offsetX: (sprite is TexturePackerSprite) ? sprite.region.offsetX : 0,
         offsetY: (sprite is TexturePackerSprite) ? sprite.region.offsetY : 0,
-        originalWidth: (sprite is TexturePackerSprite)
-            ? sprite.region.originalWidth
-            : sprite.src.width,
-        originalHeight: (sprite is TexturePackerSprite)
-            ? sprite.region.originalHeight
-            : sprite.src.height,
+        originalWidth: sprite.originalSize.x,
+        originalHeight: sprite.originalSize.y,
         bakedImage: null,
         itemIndex: itemIndex,
         itemCount: itemCount,
