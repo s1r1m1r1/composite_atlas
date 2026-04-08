@@ -758,13 +758,12 @@ class CompositeAtlasImpl extends CompositeAtlas {
       RegionFilterKey key,
       PendingBake pending,
     ) async {
-      // For spritesheets and GDX atlases: compute pixel-level hash
+      final info = keyToInfo[key]!;
       final sw = key.src.width.toInt();
       final sh = key.src.height.toInt();
       final sx = key.src.left.toInt();
       final sy = key.src.top.toInt();
 
-      final info = keyToInfo[key]!;
       final ew = (info.effectiveWidth ?? sw).toInt();
       final eh = (info.effectiveHeight ?? sh).toInt();
       final ox = info.offsetX.toInt();
@@ -776,14 +775,25 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
       // Pixel-level hash
       int pixelHash = 0;
-      final byteData = await key.image.toByteData(
+      final ui.Image targetImg = info.bakedImage ?? key.image;
+      final ui.Rect targetRect = info.bakedImage != null
+          ? info.trimmedSrc // If it's baked, we only care about the trimmed grayscale pixels
+          : key.src;
+
+      final byteData = await targetImg.toByteData(
         format: ui.ImageByteFormat.rawRgba,
       );
       if (byteData != null) {
         final buffer = byteData.buffer.asUint8List();
-        for (int y = 0; y < sh; y++) {
-          for (int x = 0; x < sw; x++) {
-            final idx = ((sy + y) * key.image.width + (sx + x)) * 4;
+        final tw = targetImg.width;
+        final tx = targetRect.left.toInt();
+        final ty = targetRect.top.toInt();
+        final tW = targetRect.width.toInt();
+        final tH = targetRect.height.toInt();
+
+        for (int y = 0; y < tH; y++) {
+          for (int x = 0; x < tW; x++) {
+            final idx = ((ty + y) * tw + (tx + x)) * 4;
             final r = buffer[idx];
             final g = buffer[idx + 1];
             final b = buffer[idx + 2];
@@ -792,7 +802,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
           }
         }
       }
-      return '${metaSig}_ph${pixelHash}_img${key.image.hashCode}';
+      return '${metaSig}_ph${pixelHash}_img${targetImg.hashCode}';
     }
 
     // Build a map: bakeKey → first pending for that key
@@ -977,12 +987,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
       if (info.bakedImage != null) {
         canvas.drawImageRect(
           info.bakedImage!,
-          ui.Rect.fromLTWH(
-            0,
-            0,
-            info.bakedImage!.width.toDouble(),
-            info.bakedImage!.height.toDouble(),
-          ),
+          info.trimmedSrc, // Fix: only draw the trimmed/processed portion of the baked image
           dst,
           basePaint,
         );

@@ -66,6 +66,9 @@ flutter:
     - assets/images/
     - assets/images/animations/
 
+  shaders:
+    - assets/shaders/grayscale.frag
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

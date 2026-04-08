@@ -196,6 +196,7 @@ class SpriteBakeInfo {
                 sprite.image.height.toDouble(),
               ),
               localSize: scanSrc.size,
+              rotated: isRotated,
               itemIndex: itemIndex,
               itemCount: itemCount,
               padding: EdgeInsets.zero,
@@ -222,14 +223,14 @@ class SpriteBakeInfo {
       if (trimResult != null) {
         // trimResult is relative to the tempImage (un-rotated, renderW x renderH)
         trimmedSrc = trimResult.trimRect;
-        offsetX = trimResult.trimRect.left;
-        // GDX offsetY is from the TOP, but our scan is also from top
-        offsetY = trimResult.trimRect.top;
+        // Final offset is the original sprite's offset PLUS the new trim offset
+        offsetX = key.offsetX + trimResult.trimRect.left;
+        offsetY = key.offsetY + trimResult.trimRect.top;
       } else {
-        // Fully transparent - keep full size
+        // Fully transparent - keep full size of the source region
         trimmedSrc = ui.Rect.fromLTWH(0, 0, renderW, renderH);
-        offsetX = 0;
-        offsetY = 0;
+        offsetX = key.offsetX;
+        offsetY = key.offsetY;
       }
 
       return SpriteBakeInfo(
