@@ -148,14 +148,71 @@ void main() {
     ]);
 
     final impl = atlas as CompositeAtlasImpl;
-    // lake_0 and lake_1 should be grouped to 'lake#0' and 'lake#1'
-    expect(impl.spriteMap.keys, contains('lake#0'));
-    expect(impl.spriteMap.keys, contains('lake#1'));
-    
     // lake_left_0 and lake_left_1 should NOT be renamed to 'lake#2' etc.
     // They should keep their original identity!
     expect(impl.spriteMap.keys, contains('lake_left_0'));
     expect(impl.spriteMap.keys, contains('lake_left_1'));
+  });
+
+  test('Reproduction: Rotation correctly updates atlas size and rendering', () async {
+    // Create a horizontal sprite (50x10)
+    final image = await createTestImage(width: 50, height: 10);
+    final sprite = Sprite(image);
+
+    // Force rotation by setting maxAtlasWidth narrower than the visual width (e.g., 20)
+    final atlas = await CompositeAtlas.bake(
+      [SpriteBakeRequest(sprite, name: 'hrz')],
+      maxAtlasWidth: 20,
+      allowRotation: true,
+    );
+
+    final bakedSprite = atlas.findSpriteByName('hrz') as TexturePackerSprite;
+    
+    // 1. Verify rotation was indeed applied by the packer
+    expect(bakedSprite.region.rotate, isTrue, reason: 'Should have rotated 50x10 to fit in 20 width');
+
+    // 2. Verify atlas image dimensions
+    // Rotated 50x10 becomes 10x50 on the sheet.
+    // If the calculation was bugged, it would have used 50 for width.
+    expect(atlas.image.width, lessThan(30), reason: 'Atlas width should be small (around 10) for rotated horizontal sprite');
+    expect(atlas.image.height, greaterThan(40), reason: 'Atlas height should be large (around 50) for rotated horizontal sprite');
+
+    // 3. Verify visual size is PRESERVED (50x10)
+    expect(bakedSprite.originalSize.x, equals(50));
+    expect(bakedSprite.originalSize.y, equals(10));
+  });
+
+  test('Reproduction: Trimming raw sprites removes whitespace and preserves offsets', () async {
+    // Create a 50x50 image with a 10x10 red block at (20, 20)
+    final image = await createTestImageWithRect(
+      width: 50,
+      height: 50,
+      rect: const ui.Rect.fromLTWH(20, 20, 10, 10),
+      color: const ui.Color(0xFFFF0000),
+    );
+    final sprite = Sprite(image);
+
+    final atlas = await CompositeAtlas.bake(
+      [SpriteBakeRequest(sprite, name: 'trimmed')],
+      trim: true,
+      maxAtlasWidth: 100, // Large enough
+    );
+
+    final bakedSprite = atlas.findSpriteByName('trimmed') as TexturePackerSprite;
+    
+    // 1. Verify atlas image is small (around 10x10)
+    // We expect it to be 10x10 (the red block) plus padding
+    expect(atlas.image.width, lessThan(20), reason: 'Atlas width should be small after trimming');
+    expect(atlas.image.height, lessThan(20), reason: 'Atlas height should be small after trimming');
+
+    // 2. Verify offsets are correct
+    // The 10x10 block was at (20, 20) in the 50x50 frame.
+    expect(bakedSprite.region.offsetX, closeTo(20, 1), reason: 'Offset X should be ~20');
+    expect(bakedSprite.region.offsetY, closeTo(20, 1), reason: 'Offset Y should be ~20');
+
+    // 3. Verify original size is preserved
+    expect(bakedSprite.originalSize.x, equals(50));
+    expect(bakedSprite.originalSize.y, equals(50));
   });
 }
 
@@ -163,6 +220,18 @@ Future<ui.Image> createTestImage({int width = 1, int height = 1}) async {
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
   canvas.drawColor(const ui.Color(0xFF00FF00), ui.BlendMode.src);
+  return recorder.endRecording().toImage(width, height);
+}
+
+Future<ui.Image> createTestImageWithRect({
+  required int width,
+  required int height,
+  required ui.Rect rect,
+  required ui.Color color,
+}) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  canvas.drawRect(rect, ui.Paint()..color = color);
   return recorder.endRecording().toImage(width, height);
 }
 

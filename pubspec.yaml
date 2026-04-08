@@ -3,6 +3,7 @@ description: Runtime texture atlas composition for Flame.
 publish_to: 'none'
 version: 0.1.0
 license: MIT
+
 resolution: workspace
 
 environment:
