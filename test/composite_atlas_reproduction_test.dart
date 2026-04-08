@@ -181,12 +181,57 @@ void main() {
     expect(bakedSprite.originalSize.x, equals(50));
     expect(bakedSprite.originalSize.y, equals(10));
   });
+
+  test('Reproduction: Trimming raw sprites removes whitespace and preserves offsets', () async {
+    // Create a 50x50 image with a 10x10 red block at (20, 20)
+    final image = await createTestImageWithRect(
+      width: 50,
+      height: 50,
+      rect: const ui.Rect.fromLTWH(20, 20, 10, 10),
+      color: const ui.Color(0xFFFF0000),
+    );
+    final sprite = Sprite(image);
+
+    final atlas = await CompositeAtlas.bake(
+      [SpriteBakeRequest(sprite, name: 'trimmed')],
+      trim: true,
+      maxAtlasWidth: 100, // Large enough
+    );
+
+    final bakedSprite = atlas.findSpriteByName('trimmed') as TexturePackerSprite;
+    
+    // 1. Verify atlas image is small (around 10x10)
+    // We expect it to be 10x10 (the red block) plus padding
+    expect(atlas.image.width, lessThan(20), reason: 'Atlas width should be small after trimming');
+    expect(atlas.image.height, lessThan(20), reason: 'Atlas height should be small after trimming');
+
+    // 2. Verify offsets are correct
+    // The 10x10 block was at (20, 20) in the 50x50 frame.
+    expect(bakedSprite.region.offsetX, closeTo(20, 1), reason: 'Offset X should be ~20');
+    expect(bakedSprite.region.offsetY, closeTo(20, 1), reason: 'Offset Y should be ~20');
+
+    // 3. Verify original size is preserved
+    expect(bakedSprite.originalSize.x, equals(50));
+    expect(bakedSprite.originalSize.y, equals(50));
+  });
 }
 
 Future<ui.Image> createTestImage({int width = 1, int height = 1}) async {
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
   canvas.drawColor(const ui.Color(0xFF00FF00), ui.BlendMode.src);
+  return recorder.endRecording().toImage(width, height);
+}
+
+Future<ui.Image> createTestImageWithRect({
+  required int width,
+  required int height,
+  required ui.Rect rect,
+  required ui.Color color,
+}) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  canvas.drawRect(rect, ui.Paint()..color = color);
   return recorder.endRecording().toImage(width, height);
 }
 

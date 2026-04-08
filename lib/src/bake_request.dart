@@ -26,10 +26,57 @@ class AtlasBakeRequest extends BakeRequest {
   });
 }
 
+/// Describes the source region of a sprite with explicit GDX-style coordinates.
+/// This avoids relying on [Sprite.srcPosition] which can be ambiguous.
+class SpriteSourceRegion {
+  /// X coordinate of the top-left corner in the source image.
+  final double x;
+
+  /// Y coordinate of the top-left corner in the source image.
+  final double y;
+
+  /// Width of the source region (packed/trimmed width from GDX).
+  final double width;
+
+  /// Height of the source region (packed/trimmed height from GDX).
+  final double height;
+
+  /// Original width before any trimming (the logical frame size).
+  final double originalWidth;
+
+  /// Original height before any trimming (the logical frame size).
+  final double originalHeight;
+
+  /// Whether this region is rotated 90° CCW in the source atlas.
+  final bool rotate;
+
+  const SpriteSourceRegion({
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+    required this.originalWidth,
+    required this.originalHeight,
+    this.rotate = false,
+  });
+
+  ui.Rect toRect() => ui.Rect.fromLTWH(x, y, width, height);
+}
+
 /// Request to bake a standalone [Sprite] as a specific entry in the atlas.
+///
+/// When [sourceRegion] is provided, the sprite's pixel bounds are taken from
+/// that explicit rect in the source image, and GDX-style offset computation
+/// is used. This is the preferred way to bake sprites from a GDX atlas.
+///
+/// When [sourceRegion] is null, the sprite's own [Sprite.src] is used
+/// (legacy behavior, suitable for spritesheets with uniform frames).
 class SpriteBakeRequest extends BakeRequest {
   final Sprite sprite;
   final String name;
+
+  /// Explicit GDX-style source region. When null, uses [sprite.src] directly.
+  final SpriteSourceRegion? sourceRegion;
 
   SpriteBakeRequest(
     this.sprite, {
@@ -37,6 +84,7 @@ class SpriteBakeRequest extends BakeRequest {
     super.filter,
     super.decorator,
     super.keyPrefix,
+    this.sourceRegion,
   });
 }
 

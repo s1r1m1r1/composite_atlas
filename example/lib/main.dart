@@ -7,9 +7,10 @@ import 'package:composite_atlas/composite_atlas.dart';
 import 'dart:ui' as ui;
 
 void main() {
-  runApp(const MaterialApp(home: AtlasViewerApp()));
+  runApp(const MaterialApp(home: HomeScreen()));
 }
 
+//region Models
 class AtlasSet {
   final String name;
   final String? atlasPath;
@@ -22,6 +23,9 @@ class AtlasSet {
   final int? frameHeight;
   final int? frameCount;
 
+  /// For spritesheets: explicit frame regions (GDX-style)
+  final List<SpritesheetFrame>? frames;
+
   AtlasSet({
     required this.name,
     this.atlasPath,
@@ -33,9 +37,41 @@ class AtlasSet {
     this.frameWidth,
     this.frameHeight,
     this.frameCount,
+    this.frames,
   });
 }
 
+/// Describes a single frame in a spritesheet.
+class SpritesheetFrame {
+  final String name;
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+
+  const SpritesheetFrame({
+    required this.name,
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+  });
+}
+
+class AppPage {
+  final String title;
+  final IconData icon;
+  final Widget Function(BuildContext context) builder;
+
+  const AppPage({
+    required this.title,
+    required this.icon,
+    required this.builder,
+  });
+}
+//endregion
+
+//region Data
 final List<AtlasSet> atlasSets = [
   AtlasSet(
     name: 'Aligned (from Rotated Source)',
@@ -60,18 +96,99 @@ final List<AtlasSet> atlasSets = [
     frameWidth: 32,
     frameHeight: 64,
     frameCount: 10,
+    frames: List.generate(
+      10,
+      (i) => SpritesheetFrame(
+        name: 'boy_$i',
+        x: i * 32.0,
+        y: 0,
+        width: 32,
+        height: 64,
+      ),
+    ),
   ),
 ];
 
-class AtlasViewerApp extends StatefulWidget {
-  const AtlasViewerApp({super.key});
+final List<AppPage> appPages = [
+  AppPage(
+    title: 'Atlas Comparison',
+    icon: Icons.compare_arrows,
+    builder: (_) => const AtlasComparisonScreen(),
+  ),
+  AppPage(
+    title: 'Raw Atlas Viewer',
+    icon: Icons.grid_view,
+    builder: (_) => const RawAtlasViewerScreen(),
+  ),
+  AppPage(
+    title: 'Settings',
+    icon: Icons.settings,
+    builder: (_) => const SettingsScreen(),
+  ),
+];
+//endregion
+
+//region Home Screen
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
 
   @override
-  State<AtlasViewerApp> createState() => _AtlasViewerAppState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A1A),
+      appBar: AppBar(
+        title: const Text('Composite Atlas Demo'),
+        backgroundColor: Colors.black,
+      ),
+      body: GridView.count(
+        crossAxisCount: 2,
+        padding: const EdgeInsets.all(16),
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        children: appPages
+            .map(
+              (page) => Card(
+                color: Colors.grey[900],
+                child: InkWell(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: page.builder),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(page.icon, size: 64, color: Colors.blueAccent),
+                      const SizedBox(height: 12),
+                      Text(
+                        page.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+}
+//endregion
+
+//region Atlas Comparison Screen
+class AtlasComparisonScreen extends StatefulWidget {
+  const AtlasComparisonScreen({super.key});
+
+  @override
+  State<AtlasComparisonScreen> createState() => _AtlasComparisonScreenState();
 }
 
-class _AtlasViewerAppState extends State<AtlasViewerApp> {
-  bool _showRaw = false;
+class _AtlasComparisonScreenState extends State<AtlasComparisonScreen> {
   int _setIndex = 1;
 
   AtlasSet get _set => atlasSets[_setIndex];
@@ -95,32 +212,151 @@ class _AtlasViewerAppState extends State<AtlasViewerApp> {
             onChanged: (v) => setState(() => _setIndex = v!),
           ),
           IconButton(
-            icon: Icon(_showRaw ? Icons.compare : Icons.grid_view),
-            onPressed: () => setState(() => _showRaw = !_showRaw),
-            tooltip: _showRaw ? 'Show Comparison' : 'Show Raw Atlas',
+            icon: const Icon(Icons.grid_view),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => RawAtlasViewPage(atlasSet: _set),
+              ),
+            ),
+            tooltip: 'View Baked Atlas',
           ),
           const SizedBox(width: 8),
         ],
       ),
-      body: _showRaw
-          ? RawAtlasView(key: ValueKey('raw_$_setIndex'), set: _set)
-          : ComparisonView(
-              key: ValueKey('comp_$_setIndex'),
-              set: _set,
-              onToggleRaw: () => setState(() => _showRaw = true),
-            ),
+      body: ComparisonView(key: ValueKey('comp_$_setIndex'), set: _set),
     );
   }
 }
+//endregion
 
+//region Raw Atlas Viewer Screen
+class RawAtlasViewerScreen extends StatefulWidget {
+  const RawAtlasViewerScreen({super.key});
+
+  @override
+  State<RawAtlasViewerScreen> createState() => _RawAtlasViewerScreenState();
+}
+
+class _RawAtlasViewerScreenState extends State<RawAtlasViewerScreen> {
+  int _setIndex = 1;
+
+  AtlasSet get _set => atlasSets[_setIndex];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A1A),
+      appBar: AppBar(
+        title: const Text('Raw Atlas Viewer'),
+        backgroundColor: Colors.black,
+        actions: [
+          DropdownButton<int>(
+            value: _setIndex,
+            dropdownColor: Colors.black,
+            style: const TextStyle(color: Colors.white),
+            items: [
+              for (int i = 0; i < atlasSets.length; i++)
+                DropdownMenuItem(value: i, child: Text('Exp $i')),
+            ],
+            onChanged: (v) => setState(() => _setIndex = v!),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: RawAtlasViewPage(key: ValueKey('raw_$_setIndex'), atlasSet: _set),
+    );
+  }
+}
+//endregion
+
+//region Settings Screen
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  double _maxAtlasWidth = 128.0;
+  bool _allowRotation = true;
+  bool _forceSquare = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A1A),
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: Colors.black,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            color: Colors.grey[900],
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Atlas Configuration',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Max Atlas Width: ${_maxAtlasWidth.toInt()}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  Slider(
+                    value: _maxAtlasWidth,
+                    min: 64,
+                    max: 512,
+                    divisions: 14,
+                    label: _maxAtlasWidth.toInt().toString(),
+                    activeColor: Colors.blueAccent,
+                    onChanged: (v) => setState(() => _maxAtlasWidth = v),
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    title: const Text(
+                      'Allow Rotation',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    value: _allowRotation,
+                    activeColor: Colors.blueAccent,
+                    onChanged: (v) => setState(() => _allowRotation = v),
+                  ),
+                  SwitchListTile(
+                    title: const Text(
+                      'Force Square',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    value: _forceSquare,
+                    activeColor: Colors.blueAccent,
+                    onChanged: (v) => setState(() => _forceSquare = v),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+//endregion
+
+//region Shared Widgets
 class ComparisonView extends StatefulWidget {
   final AtlasSet set;
-  final VoidCallback onToggleRaw;
-  const ComparisonView({
-    super.key,
-    required this.set,
-    required this.onToggleRaw,
-  });
+  const ComparisonView({super.key, required this.set});
 
   @override
   State<ComparisonView> createState() => _ComparisonViewState();
@@ -146,7 +382,12 @@ class _ComparisonViewState extends State<ComparisonView> {
           right: 0,
           child: Center(
             child: ElevatedButton.icon(
-              onPressed: widget.onToggleRaw,
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RawAtlasViewPage(atlasSet: widget.set),
+                ),
+              ),
               icon: const Icon(Icons.grid_view),
               label: const Text('VIEW BAKED ATLAS'),
               style: ElevatedButton.styleFrom(
@@ -166,21 +407,21 @@ class _ComparisonViewState extends State<ComparisonView> {
   }
 }
 
-class RawAtlasView extends StatefulWidget {
-  final AtlasSet set;
-  const RawAtlasView({super.key, required this.set});
+class RawAtlasViewPage extends StatefulWidget {
+  final AtlasSet atlasSet;
+  const RawAtlasViewPage({super.key, required this.atlasSet});
 
   @override
-  State<RawAtlasView> createState() => _RawAtlasViewState();
+  State<RawAtlasViewPage> createState() => _RawAtlasViewPageState();
 }
 
-class _RawAtlasViewState extends State<RawAtlasView> {
+class _RawAtlasViewPageState extends State<RawAtlasViewPage> {
   late RawAtlasGame _game;
 
   @override
   void initState() {
     super.initState();
-    _game = RawAtlasGame(widget.set);
+    _game = RawAtlasGame(widget.atlasSet);
   }
 
   @override
@@ -210,6 +451,7 @@ class _RawAtlasViewState extends State<RawAtlasView> {
     );
   }
 }
+//endregion
 
 class ComparisonGame extends Game {
   final AtlasSet set;
@@ -226,36 +468,87 @@ class ComparisonGame extends Game {
   @override
   Future<void> onLoad() async {
     if (set.isSpritesheet) {
-      // For spritesheets, we slice the image manually into SpriteBakeRequests
+      // For spritesheets, we slice the image into frames with explicit GDX regions
       final image = await images.load(set.imagePath);
-      final List<Sprite> frames = List.generate(
-        set.frameCount!,
-        (i) => Sprite(
-          image,
-          srcPosition: Vector2(i * set.frameWidth!.toDouble(), 0),
-          srcSize: Vector2(
-            set.frameWidth!.toDouble(),
-            set.frameHeight!.toDouble(),
-          ),
-        ),
-      );
 
-      bakedAtlas = await CompositeAtlas.bake(
-        frames
-            .asMap()
-            .entries
+      final List<SpriteBakeRequest> bakeRequests;
+      if (set.frames != null) {
+        // Use explicit frame regions (GDX-style)
+        bakeRequests = set.frames!
             .map(
-              (e) => SpriteBakeRequest(
-                e.value,
-                name: 'boy_${e.key}',
+              (frame) => SpriteBakeRequest(
+                Sprite(
+                  image,
+                  srcPosition: Vector2(frame.x, frame.y),
+                  srcSize: Vector2(frame.width, frame.height),
+                ),
+                name: frame.name,
                 keyPrefix: 'baked_',
+                sourceRegion: SpriteSourceRegion(
+                  x: frame.x,
+                  y: frame.y,
+                  width: frame.width,
+                  height: frame.height,
+                  originalWidth: frame.width,
+                  originalHeight: frame.height,
+                ),
               ),
             )
-            .toList(),
+            .toList();
+      } else {
+        // Fallback: generate frames from grid
+        bakeRequests = List.generate(
+          set.frameCount!,
+          (i) => SpriteBakeRequest(
+            Sprite(
+              image,
+              srcPosition: Vector2(i * set.frameWidth!.toDouble(), 0),
+              srcSize: Vector2(
+                set.frameWidth!.toDouble(),
+                set.frameHeight!.toDouble(),
+              ),
+            ),
+            name: 'boy_$i',
+            keyPrefix: 'baked_',
+            sourceRegion: SpriteSourceRegion(
+              x: i * set.frameWidth!.toDouble(),
+              y: 0,
+              width: set.frameWidth!.toDouble(),
+              height: set.frameHeight!.toDouble(),
+              originalWidth: set.frameWidth!.toDouble(),
+              originalHeight: set.frameHeight!.toDouble(),
+            ),
+          ),
+        );
+      }
+
+      bakedAtlas = await CompositeAtlas.bake(
+        bakeRequests,
         maxAtlasWidth: 128.0,
         allowRotation: set.allowRotation,
         forceSquare: set.forceSquare,
+        trim: true, // Now safe: explicit regions with proper offset computation
       );
+
+      final List<Sprite> frames = bakeRequests
+          .map(
+            (r) => Sprite(
+              image,
+              srcPosition: Vector2(
+                set.frames != null
+                    ? set.frames![bakeRequests.indexOf(r)].x
+                    : r.sourceRegion?.x ?? 0,
+                0,
+              ),
+              srcSize: Vector2(
+                set.frames != null
+                    ? set.frames![bakeRequests.indexOf(r)].width
+                    : r.sourceRegion?.width ?? set.frameWidth!.toDouble(),
+                set.frameHeight!.toDouble(),
+              ),
+            ),
+          )
+          .toList();
 
       final originalAnim = SpriteAnimation.spriteList(frames, stepTime: 0.2);
       final bakedAnim = bakedAtlas!.getAnimation('baked_boy', stepTime: 0.2);
@@ -404,20 +697,20 @@ class ComparisonGame extends Game {
       canvas,
       size.x / 6,
       size.y / 2 + 180,
-      referenceTicker!.getSprite() as TexturePackerSprite,
+      referenceTicker!.getSprite(),
     );
     _renderMeta(
       canvas,
       size.x / 2,
       size.y / 2 + 180,
-      originalTicker!.getSprite() as TexturePackerSprite,
+      originalTicker!.getSprite(),
     );
     _renderMeta(
       canvas,
       size.x * 5 / 6,
       size.y / 2 + 180,
-      bakedTicker!.getSprite() as TexturePackerSprite,
-      compareWith: referenceTicker!.getSprite() as TexturePackerSprite,
+      bakedTicker!.getSprite(),
+      compareWith: referenceTicker!.getSprite(),
     );
   }
 
@@ -425,12 +718,23 @@ class ComparisonGame extends Game {
     Canvas canvas,
     double x,
     double y,
-    TexturePackerSprite s, {
-    TexturePackerSprite? compareWith,
+    Sprite s, {
+    Sprite? compareWith,
   }) {
+    if (s is! TexturePackerSprite) {
+      final tp = TextPainter(textDirection: TextDirection.ltr);
+      tp.text = TextSpan(
+        text: 'Raw Sprite (${s.srcSize.x.toInt()}x${s.srcSize.y.toInt()})',
+        style: const TextStyle(color: Colors.grey, fontSize: 11),
+      );
+      tp.layout();
+      tp.paint(canvas, Offset(x - tp.width / 2, y));
+      return;
+    }
+
     final tp = TextPainter(textDirection: TextDirection.ltr);
     final r = s.region;
-    final cr = compareWith?.region;
+    final cr = compareWith is TexturePackerSprite ? compareWith.region : null;
 
     bool isDiff(double a, double b) => a != b;
 
@@ -494,26 +798,60 @@ class RawAtlasGame extends Game {
   Future<void> onLoad() async {
     if (set.isSpritesheet) {
       final image = await images.load(set.imagePath);
-      final List<SpriteBakeRequest> requests = List.generate(
-        set.frameCount!,
-        (i) => SpriteBakeRequest(
-          Sprite(
-            image,
-            srcPosition: Vector2(i * set.frameWidth!.toDouble(), 0),
-            srcSize: Vector2(
-              set.frameWidth!.toDouble(),
-              set.frameHeight!.toDouble(),
+
+      final List<SpriteBakeRequest> requests;
+      if (set.frames != null) {
+        requests = set.frames!
+            .map(
+              (frame) => SpriteBakeRequest(
+                Sprite(
+                  image,
+                  srcPosition: Vector2(frame.x, frame.y),
+                  srcSize: Vector2(frame.width, frame.height),
+                ),
+                name: frame.name,
+                sourceRegion: SpriteSourceRegion(
+                  x: frame.x,
+                  y: frame.y,
+                  width: frame.width,
+                  height: frame.height,
+                  originalWidth: frame.width,
+                  originalHeight: frame.height,
+                ),
+              ),
+            )
+            .toList();
+      } else {
+        requests = List.generate(
+          set.frameCount!,
+          (i) => SpriteBakeRequest(
+            Sprite(
+              image,
+              srcPosition: Vector2(i * set.frameWidth!.toDouble(), 0),
+              srcSize: Vector2(
+                set.frameWidth!.toDouble(),
+                set.frameHeight!.toDouble(),
+              ),
+            ),
+            name: 'frame_$i',
+            sourceRegion: SpriteSourceRegion(
+              x: i * set.frameWidth!.toDouble(),
+              y: 0,
+              width: set.frameWidth!.toDouble(),
+              height: set.frameHeight!.toDouble(),
+              originalWidth: set.frameWidth!.toDouble(),
+              originalHeight: set.frameHeight!.toDouble(),
             ),
           ),
-          name: 'frame_$i',
-        ),
-      );
+        );
+      }
 
       bakedAtlas = await CompositeAtlas.bake(
         requests,
         maxAtlasWidth: 128.0,
         allowRotation: set.allowRotation,
         forceSquare: set.forceSquare,
+        trim: true,
       );
     } else {
       final atlas = await TexturePackerAtlas.load(set.atlasPath!);
@@ -549,7 +887,7 @@ class RawAtlasGame extends Game {
 
     // Draw borders for each sprite
     final p = Paint()
-      ..color = const Color.fromARGB(60, 255, 255, 255)
+      ..color = const Color.fromARGB(255, 255, 0, 0)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
 

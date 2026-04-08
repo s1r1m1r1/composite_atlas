@@ -1,7 +1,5 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
-import 'dart:async';
-import 'package:flutter/painting.dart';
 
 import 'package:flame/cache.dart';
 import 'package:flame/components.dart';
@@ -9,7 +7,6 @@ import 'package:flame_texturepacker/flame_texturepacker.dart';
 
 import 'composite_atlas.dart';
 import 'internal_models.dart';
-import 'atlas_decorator.dart';
 import 'bake_request.dart';
 
 // ignore_for_file: implementation_imports
@@ -39,85 +36,117 @@ class BakeInfo {
   });
 }
 
-/// A simple implementation of the Guillotine packing algorithm.
-class GuillotinePacker {
+// ─── Common packer interface ───────────────────────────────────────────────
+
+abstract class _AtlasPacker {
+  ({ui.Offset offset, bool rotated})? pack(
+    double w,
+    double h, {
+    bool allowRotation,
+  });
+
+  void growToFit(double w, double h, {bool allowRotation});
+}
+
+// ─── Fast Guillotine (runtime) ──────────────────────────────────────────────
+/// Guillotine bin-packing with Shortest-Axis-First split heuristic.
+/// O(n log n) speed, good for runtime atlas baking.
+class _GuillotinePacker implements _AtlasPacker {
   final double maxWidth;
   final List<ui.Rect> _freeRects = [];
-  double currentHeight;
+  double _currentWidth;
+  double _currentHeight;
 
-  GuillotinePacker(this.maxWidth, {this.currentHeight = 0});
+  _GuillotinePacker(double initialSide)
+    : maxWidth = 4096.0,
+      _currentWidth = initialSide,
+      _currentHeight = initialSide {
+    _freeRects.add(ui.Rect.fromLTWH(0, 0, initialSide, initialSide));
+  }
 
-  /// Tries to pack a rectangle of size [w]x[h].
-  /// Returns a record with the position and whether it was rotated.
+  @override
   ({ui.Offset offset, bool rotated})? pack(
     double w,
     double h, {
     bool allowRotation = true,
   }) {
-    int bestRectIndex = -1;
-    double bestArea = double.infinity;
+    // Best short-side fit — minimizes leftover space on the shorter axis
+    int bestIdx = -1;
+    double bestShort = double.infinity;
     bool rotated = false;
 
-    // 1. Find best fitting free rectangle (Best Area Fit heuristic)
     for (int i = 0; i < _freeRects.length; i++) {
-      final rect = _freeRects[i];
+      final r = _freeRects[i];
 
-      // Try original orientation
-      if (rect.width >= w - 0.0001 && rect.height >= h - 0.0001) {
-        final area = rect.width * rect.height;
-        if (area < bestArea) {
-          bestArea = area;
-          bestRectIndex = i;
+      // Original orientation
+      if (r.width >= w - 0.0001 && r.height >= h - 0.0001) {
+        final leftover = math.min(r.width - w, r.height - h);
+        if (leftover < bestShort) {
+          bestShort = leftover;
+          bestIdx = i;
           rotated = false;
         }
       }
 
-      // Try rotated orientation
-      if (allowRotation &&
-          rect.width >= h - 0.0001 &&
-          rect.height >= w - 0.0001) {
-        final area = rect.width * rect.height;
-        if (area < bestArea) {
-          bestArea = area;
-          bestRectIndex = i;
+      // Rotated
+      if (allowRotation && r.width >= h - 0.0001 && r.height >= w - 0.0001) {
+        final leftover = math.min(r.width - h, r.height - w);
+        if (leftover < bestShort) {
+          bestShort = leftover;
+          bestIdx = i;
           rotated = true;
         }
       }
     }
 
-    if (bestRectIndex != -1) {
-      final rect = _freeRects.removeAt(bestRectIndex);
-      final double useW = rotated ? h : w;
-      final double useH = rotated ? w : h;
+    if (bestIdx == -1) return null;
 
-      _split(rect, useW, useH);
-      return (offset: ui.Offset(rect.left, rect.top), rotated: rotated);
+    final rect = _freeRects.removeAt(bestIdx);
+    final useW = rotated ? h : w;
+    final useH = rotated ? w : h;
+    _split(rect, useW, useH);
+    return (offset: ui.Offset(rect.left, rect.top), rotated: rotated);
+  }
+
+  @override
+  void growToFit(double w, double h, {bool allowRotation = true}) {
+    // Ensure width can fit the sprite (or its rotated form)
+    final double neededWidth = allowRotation ? math.min(w, h) : w;
+    while (_currentWidth < neededWidth && _currentWidth < 4096) {
+      _currentWidth *= 2;
     }
 
-    return null;
+    // Grow height only when necessary — no fixed minimums.
+    // This avoids wasting space on large rows when sprites are small.
+    final double neededHeight = h;
+    // Add a new row of the exact height we need.
+    _freeRects.add(
+      ui.Rect.fromLTWH(0, _currentHeight, _currentWidth, neededHeight),
+    );
+    _currentHeight += neededHeight;
   }
 
   void _split(ui.Rect rect, double w, double h) {
-    // Shorter Side Split rule
-    final double freeW = rect.width - w;
-    final double freeH = rect.height - h;
+    final freeW = rect.width - w;
+    final freeH = rect.height - h;
 
-    if (freeW > freeH) {
-      // Split vertically
+    // Shortest-axis split: split along the shorter leftover
+    if (freeW < freeH) {
+      // Horizontal split — leftover above/below
       if (freeW > 0.0001) {
         _freeRects.add(ui.Rect.fromLTWH(rect.left + w, rect.top, freeW, h));
       }
-      if (freeH > 0.0001 || rect.width > w + 0.0001) {
+      if (freeH > 0.0001) {
         _freeRects.add(
           ui.Rect.fromLTWH(rect.left, rect.top + h, rect.width, freeH),
         );
       }
     } else {
-      // Split horizontally
+      // Vertical split — leftover left/right
       if (freeH > 0.0001) {
         _freeRects.add(ui.Rect.fromLTWH(rect.left, rect.top + h, w, freeH));
       }
-      if (freeW > 0.0001 || rect.height > h + 0.0001) {
+      if (freeW > 0.0001) {
         _freeRects.add(
           ui.Rect.fromLTWH(rect.left + w, rect.top, freeW, rect.height),
         );
@@ -125,17 +154,237 @@ class GuillotinePacker {
     }
   }
 
-  void addNewSpace(double additionalHeight) {
-    _freeRects.add(
-      ui.Rect.fromLTWH(0, currentHeight, maxWidth, additionalHeight),
-    );
-    currentHeight += additionalHeight;
+  double get currentWidth => _currentWidth;
+  double get currentHeight => _currentHeight;
+
+  /// Merges adjacent free rects to create larger contiguous spaces.
+  void mergeFreeRects() {
+    final merged = <ui.Rect>[];
+    final used = List<bool>.filled(_freeRects.length, false);
+
+    for (int i = 0; i < _freeRects.length; i++) {
+      if (used[i]) continue;
+      var current = _freeRects[i];
+      used[i] = true;
+
+      // Try to merge with other free rects
+      bool mergedAny;
+      do {
+        mergedAny = false;
+        for (int j = i + 1; j < _freeRects.length; j++) {
+          if (used[j]) continue;
+          final other = _freeRects[j];
+          final merged_ = _tryMerge(current, other);
+          if (merged_ != null) {
+            current = merged_;
+            used[j] = true;
+            mergedAny = true;
+          }
+        }
+      } while (mergedAny);
+
+      merged.add(current);
+    }
+
+    _freeRects.clear();
+    _freeRects.addAll(merged);
   }
 
-  void addFreeRect(ui.Rect rect) {
-    _freeRects.add(rect);
-    currentHeight = math.max(currentHeight, rect.bottom);
+  static ui.Rect? _tryMerge(ui.Rect a, ui.Rect b) {
+    // Same left/right, vertically adjacent
+    if ((a.left - b.left).abs() < 0.0001 &&
+        (a.width - b.width).abs() < 0.0001) {
+      if ((a.bottom - b.top).abs() < 0.0001) {
+        return ui.Rect.fromLTWH(a.left, a.top, a.width, a.height + b.height);
+      }
+      if ((a.top - b.bottom).abs() < 0.0001) {
+        return ui.Rect.fromLTWH(a.left, b.top, a.width, a.height + b.height);
+      }
+    }
+    // Same top/bottom, horizontally adjacent
+    if ((a.top - b.top).abs() < 0.0001 &&
+        (a.height - b.height).abs() < 0.0001) {
+      if ((a.right - b.left).abs() < 0.0001) {
+        return ui.Rect.fromLTWH(a.left, a.top, a.width + b.width, a.height);
+      }
+      if ((a.left - b.right).abs() < 0.0001) {
+        return ui.Rect.fromLTWH(b.left, a.top, a.width + b.width, a.height);
+      }
+    }
+    return null;
   }
+}
+
+// ─── MaxRects (optimal / prebuild) ──────────────────────────────────────────
+/// MaxRects bin-packing with Best-Area-Fit heuristic + free rect merging.
+/// Slower but denser packing — ideal for pre-build / dev workflows.
+class _MaxRectsPacker implements _AtlasPacker {
+  final List<ui.Rect> _freeRects = [];
+  double _currentWidth;
+  double _currentHeight;
+
+  _MaxRectsPacker(double initialSide)
+    : _currentWidth = initialSide,
+      _currentHeight = initialSide {
+    _freeRects.add(ui.Rect.fromLTWH(0, 0, initialSide, initialSide));
+  }
+
+  @override
+  ({ui.Offset offset, bool rotated})? pack(
+    double w,
+    double h, {
+    bool allowRotation = true,
+  }) {
+    int bestIdx = -1;
+    double bestArea = double.infinity;
+    double bestShort = double.infinity;
+    bool rotated = false;
+
+    for (int i = 0; i < _freeRects.length; i++) {
+      final r = _freeRects[i];
+
+      if (r.width >= w - 0.0001 && r.height >= h - 0.0001) {
+        final area = r.width * r.height;
+        final leftover = math.min(r.width - w, r.height - h);
+        if (area < bestArea || (area == bestArea && leftover < bestShort)) {
+          bestArea = area;
+          bestShort = leftover;
+          bestIdx = i;
+          rotated = false;
+        }
+      }
+
+      if (allowRotation && r.width >= h - 0.0001 && r.height >= w - 0.0001) {
+        final area = r.width * r.height;
+        final leftover = math.min(r.width - h, r.height - w);
+        if (area < bestArea || (area == bestArea && leftover < bestShort)) {
+          bestArea = area;
+          bestShort = leftover;
+          bestIdx = i;
+          rotated = true;
+        }
+      }
+    }
+
+    if (bestIdx == -1) return null;
+
+    final rect = _freeRects.removeAt(bestIdx);
+    final useW = rotated ? h : w;
+    final useH = rotated ? w : h;
+    _placeRect(rect, useW, useH);
+    return (offset: ui.Offset(rect.left, rect.top), rotated: rotated);
+  }
+
+  @override
+  void growToFit(double w, double h, {bool allowRotation = true}) {
+    // Ensure width can fit the sprite (or its rotated form)
+    final double neededWidth = allowRotation ? math.min(w, h) : w;
+    while (_currentWidth < neededWidth && _currentWidth < 4096) {
+      _currentWidth *= 2;
+    }
+
+    // Add a new row of the exact height we need.
+    _freeRects.add(ui.Rect.fromLTWH(0, _currentHeight, _currentWidth, h));
+    _currentHeight += h;
+  }
+
+  void _placeRect(ui.Rect rect, double w, double h) {
+    // Split all free rects that overlap with the placed rect
+    final newFree = <ui.Rect>[];
+    for (int i = 0; i < _freeRects.length; i++) {
+      final fr = _freeRects[i];
+      if (_intersect(fr, rect)) {
+        // Split this free rect into up to 4 new rects around the placed rect
+        // Left
+        if (fr.left < rect.left) {
+          newFree.add(
+            ui.Rect.fromLTWH(fr.left, fr.top, rect.left - fr.left, fr.height),
+          );
+        }
+        // Right
+        if (fr.right > rect.right) {
+          newFree.add(
+            ui.Rect.fromLTWH(
+              rect.right,
+              fr.top,
+              fr.right - rect.right,
+              fr.height,
+            ),
+          );
+        }
+        // Top
+        if (fr.top < rect.top) {
+          newFree.add(
+            ui.Rect.fromLTWH(
+              math.max(fr.left, rect.left),
+              fr.top,
+              math.min(fr.right, rect.right) - math.max(fr.left, rect.left),
+              rect.top - fr.top,
+            ),
+          );
+        }
+        // Bottom
+        if (fr.bottom > rect.bottom) {
+          newFree.add(
+            ui.Rect.fromLTWH(
+              math.max(fr.left, rect.left),
+              rect.bottom,
+              math.min(fr.right, rect.right) - math.max(fr.left, rect.left),
+              fr.bottom - rect.bottom,
+            ),
+          );
+        }
+      } else {
+        newFree.add(fr);
+      }
+    }
+    _freeRects.clear();
+    _freeRects.addAll(
+      newFree.where((r) => r.width > 0.001 && r.height > 0.001),
+    );
+    mergeFreeRects();
+  }
+
+  bool _intersect(ui.Rect a, ui.Rect b) {
+    return a.left < b.right &&
+        a.right > b.left &&
+        a.top < b.bottom &&
+        a.bottom > b.top;
+  }
+
+  void mergeFreeRects() {
+    final merged = <ui.Rect>[];
+    final used = List<bool>.filled(_freeRects.length, false);
+
+    for (int i = 0; i < _freeRects.length; i++) {
+      if (used[i]) continue;
+      var current = _freeRects[i];
+      used[i] = true;
+
+      bool mergedAny;
+      do {
+        mergedAny = false;
+        for (int j = i + 1; j < _freeRects.length; j++) {
+          if (used[j]) continue;
+          final other = _freeRects[j];
+          final merged_ = _GuillotinePacker._tryMerge(current, other);
+          if (merged_ != null) {
+            current = merged_;
+            used[j] = true;
+            mergedAny = true;
+          }
+        }
+      } while (mergedAny);
+
+      merged.add(current);
+    }
+
+    _freeRects.clear();
+    _freeRects.addAll(merged);
+  }
+
+  double get currentWidth => _currentWidth;
+  double get currentHeight => _currentHeight;
 }
 
 class CompositeAtlasImpl extends CompositeAtlas {
@@ -171,6 +420,8 @@ class CompositeAtlasImpl extends CompositeAtlas {
     double maxAtlasWidth = 1024.0,
     bool allowRotation = true,
     bool forceSquare = false,
+    bool trim = true,
+    AtlasPackMode packMode = AtlasPackMode.fast,
     Images? images,
   }) async {
     final Map<RegionFilterKey, List<PendingBake>> groupedTasks = {};
@@ -194,7 +445,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
       }
     }
 
-    // 2. Group by visual identity (Image + Rect + Filter + Decorator)
+    // 2. Group by visual identity (Image + Rect + Filter + Decorator + rotation)
     final Map<String, int> localIndices = {};
     for (final request in requests) {
       final prefix = request.keyPrefix ?? '';
@@ -270,6 +521,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
             region.offsetY,
             region.originalWidth,
             region.originalHeight,
+            rotate: region.rotate,
           );
 
           final pending = PendingBake(
@@ -287,18 +539,31 @@ class CompositeAtlasImpl extends CompositeAtlas {
           groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
         }
       } else if (request is SpriteBakeRequest) {
-        final double offsetX = (request.sprite is TexturePackerSprite)
-            ? (request.sprite as TexturePackerSprite).region.offsetX
-            : 0;
-        final double offsetY = (request.sprite is TexturePackerSprite)
-            ? (request.sprite as TexturePackerSprite).region.offsetY
-            : 0;
-        final double originalWidth = (request.sprite is TexturePackerSprite)
-            ? (request.sprite as TexturePackerSprite).region.originalWidth
-            : request.sprite.src.width;
-        final double originalHeight = (request.sprite is TexturePackerSprite)
-            ? (request.sprite as TexturePackerSprite).region.originalHeight
-            : request.sprite.src.height;
+        final sr = request.sourceRegion;
+        final Sprite actualSprite = request.sprite;
+
+        final double offsetX;
+        final double offsetY;
+        final double originalWidth;
+        final double originalHeight;
+
+        if (sr != null) {
+          offsetX = (sr.originalWidth - sr.width) / 2.0;
+          offsetY = (sr.originalHeight - sr.height) / 2.0;
+          originalWidth = sr.originalWidth;
+          originalHeight = sr.originalHeight;
+        } else if (actualSprite is TexturePackerSprite) {
+          final region = actualSprite.region;
+          offsetX = region.offsetX;
+          offsetY = region.offsetY;
+          originalWidth = region.originalWidth;
+          originalHeight = region.originalHeight;
+        } else {
+          offsetX = 0;
+          offsetY = 0;
+          originalWidth = actualSprite.src.width;
+          originalHeight = actualSprite.src.height;
+        }
 
         var name = request.name;
         final originalName = request.name;
@@ -310,9 +575,11 @@ class CompositeAtlasImpl extends CompositeAtlas {
           itemIndex = int.parse(match.group(2)!);
         }
 
+        final ui.Rect srcRect = sr?.toRect() ?? actualSprite.src;
+
         final RegionFilterKey bakeKey = RegionFilterKey(
-          request.sprite.image,
-          request.sprite.src,
+          actualSprite.image,
+          srcRect,
           request.filter,
           request.decorator,
           itemIndex,
@@ -321,10 +588,11 @@ class CompositeAtlasImpl extends CompositeAtlas {
           offsetY,
           originalWidth,
           originalHeight,
+          rotate: sr?.rotate ?? false,
         );
 
         final pending = PendingBake(
-          request.sprite,
+          actualSprite,
           request.keyPrefix ?? '',
           name,
           request.filter,
@@ -333,6 +601,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
           1,
           bakeKey,
           originalName: originalName,
+          sourceRegion: sr,
         );
 
         groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
@@ -343,165 +612,166 @@ class CompositeAtlasImpl extends CompositeAtlas {
       throw StateError('No bake requests found.');
     }
 
-    final completer = Completer<void>();
-    try {
-      final Map<RegionFilterKey, BakeInfo> keyToInfo = {};
-      final List<PendingBake> spritesToBake = [];
+    // 3. Analyze & trim each unique slot (scan alpha, crop tight bounds)
+    final Map<RegionFilterKey, BakeInfo> keyToInfo = {};
+    final List<PendingBake> spritesToBake = [];
 
-      for (final entry in groupedTasks.entries) {
-        final key = entry.key;
-        final pending = entry.value;
+    int analyzedCount = 0;
+    for (final entry in groupedTasks.entries) {
+      final key = entry.key;
+      final pending = entry.value;
+      final template = pending.first.sprite;
+      final decorator = key.decorator;
 
-        final template = pending.first.sprite;
-        BakeInfo info;
+      final bool isRotated = key.rotate;
+      final bool hasExplicitRegion = pending.first.sourceRegion != null;
+      final bool isRawSprite = template is! TexturePackerSprite;
 
-        final decorator = key.decorator;
-        final padding = (decorator is BakePadding)
-            ? (decorator as BakePadding).padding
-            : EdgeInsets.zero;
+      // Decide whether to run alpha analysis (trim)
+      // - If trim is enabled AND (explicit GDX region OR raw sprite), analyze
+      // - For AtlasBakeRequest (TexturePackerSprite), GDX already trimmed,
+      //   so we use the source data directly unless a decorator is present
+      final bool needsAlphaAnalysis =
+          trim && (hasExplicitRegion || isRawSprite || decorator != null);
 
-        final bool isRotated =
-            template is TexturePackerSprite && template.region.rotate;
-        final bool needsAnalysis = decorator != null || isRotated;
+      BakeInfo info;
 
-        if (needsAnalysis) {
-          // Use the original visual size (un-rotated) as the reference for baking.
-          // Sprite.render() will handle placing the packed pixels at the correct
-          // visual offsetX/offsetY within this original frame.
-          final double bakedW = template.originalSize.x;
-          final double bakedH = template.originalSize.y;
+      if (needsAlphaAnalysis) {
+        // Use SpriteBakeInfo.analyze to scan alpha and crop
+        final bakeInfo = await SpriteBakeInfo.analyze(
+          key: key,
+          sprite: template,
+          filter: key.filter,
+          decorator: key.decorator,
+          prefix: pending.first.prefix,
+          name: pending.first.name,
+          itemIndex: key.itemIndex,
+          itemCount: key.itemCount,
+          sourceRegion: pending.first.sourceRegion,
+        );
 
-          double baseOX = 0;
-          double baseOY = 0;
-          if (isRotated) {
-            baseOX = key.offsetX;
-            baseOY = key.offsetY;
-          }
+        info = BakeInfo(
+          bakeInfo.trimmedSrc,
+          bakeInfo.offsetX,
+          bakeInfo.offsetY,
+          bakeInfo.originalWidth,
+          bakeInfo.originalHeight,
+          rotate: isRotated,
+          effectiveWidth: bakeInfo.trimmedSrc.width,
+          effectiveHeight: bakeInfo.trimmedSrc.height,
+        );
+        info.bakedImage = bakeInfo.bakedImage;
+      } else {
+        // GDX atlas already trimmed — pre-render at full original size
+        // so the baked slot matches the logical frame dimensions.
+        final double baseOW = key.originalWidth;
+        final double baseOH = key.originalHeight;
+        final double baseOX = key.offsetX;
+        final double baseOY = key.offsetY;
 
-          info = BakeInfo(
-            template.src,
-            baseOX,
-            baseOY,
-            template.originalSize.x,
-            template.originalSize.y,
-            effectiveWidth: bakedW + padding.horizontal,
-            effectiveHeight: bakedH + padding.vertical,
+        // For rotated sprites, the source rect in the atlas is 90° CCW.
+        // We need to un-rotate (90° CW) to get the visual representation.
+        final preRenderRecorder = ui.PictureRecorder();
+        final preRenderCanvas = ui.Canvas(preRenderRecorder);
+
+        if (isRotated) {
+          // Un-rotate: source is 90° CCW, so rotate 90° CW
+          // The source rect has swapped w/h, so we draw it rotated
+          preRenderCanvas.translate(baseOX + key.src.height, baseOY);
+          preRenderCanvas.rotate(math.pi / 2);
+          preRenderCanvas.drawImageRect(
+            key.image,
+            key.src,
+            ui.Rect.fromLTWH(0, 0, key.src.width, key.src.height),
+            ui.Paint()..filterQuality = ui.FilterQuality.none,
           );
         } else {
-          // Optimization: For simple sprites, preserve the original trimming and offsets exactly.
-          final double baseOX = (template is TexturePackerSprite)
-              ? template.region.offsetX
-              : 0;
-          final double baseOY = (template is TexturePackerSprite)
-              ? template.region.offsetY
-              : 0;
-          final double baseOW = (template is TexturePackerSprite)
-              ? template.region.originalWidth
-              : template.src.width;
-          final double baseOH = (template is TexturePackerSprite)
-              ? template.region.originalHeight
-              : template.src.height;
+          preRenderCanvas.drawImageRect(
+            key.image,
+            key.src,
+            ui.Rect.fromLTWH(baseOX, baseOY, key.src.width, key.src.height),
+            ui.Paint()..filterQuality = ui.FilterQuality.none,
+          );
+        }
 
+        final preRendered = await preRenderRecorder.endRecording().toImage(
+          baseOW.ceil(),
+          baseOH.ceil(),
+        );
+
+        // Scan alpha to potentially re-trim (optional, for tighter packing)
+        // But keep originalWidth/originalHeight as the logical frame size
+        final trimResult = await _scanAlphaTight(preRendered);
+
+        if (trimResult != null && trim) {
+          // Use trimmed size for packing efficiency, but keep original metadata
           info = BakeInfo(
-            template.src,
-            baseOX - padding.left,
-            baseOY - padding.top,
+            ui.Rect.fromLTWH(
+              0,
+              0,
+              trimResult.trimRect.width,
+              trimResult.trimRect.height,
+            ),
+            baseOX + trimResult.trimRect.left,
+            baseOY + trimResult.trimRect.top,
             baseOW,
             baseOH,
-            effectiveWidth: template.src.width + padding.horizontal,
-            effectiveHeight: template.src.height + padding.vertical,
+            rotate: isRotated,
+            effectiveWidth: trimResult.trimRect.width,
+            effectiveHeight: trimResult.trimRect.height,
           );
-        }
-
-        if (key.decorator != null || isRotated) {
-          final decorator = key.decorator;
-          final padding = (decorator is BakePadding)
-              ? (decorator as BakePadding).padding
-              : EdgeInsets.zero;
-
-          final double targetW = info.effectiveWidth ?? info.trimmedSrc.width;
-          final double targetH = info.effectiveHeight ?? info.trimmedSrc.height;
-
-          final recorder = ui.PictureRecorder();
-          final canvas = ui.Canvas(recorder);
-
-          if (decorator is AtlasDecorator) {
-            (decorator as AtlasDecorator).updateAtlasContext(
-              AtlasContext(
-                atlasImage: key.image,
-                srcRect: info.trimmedSrc,
-                atlasSize: ui.Size(
-                  key.image.width.toDouble(),
-                  key.image.height.toDouble(),
-                ),
-                localSize: ui.Size(
-                  info.trimmedSrc.width,
-                  info.trimmedSrc.height,
-                ),
-                itemIndex: key.itemIndex,
-                itemCount: key.itemCount,
-                padding: padding,
-              ),
-            );
-          }
-
-          void draw(ui.Canvas canvas) {
-            canvas.save();
-            canvas.translate(padding.left, padding.top);
-
-            // TexturePackerSprite and other sprites know how to render themselves
-            // correctly within their original frame using their internal offsets.
-            // We pass originalSize to ensure 1:1 rendering without auto-scaling.
-            template.render(
-              canvas,
-              size: template.originalSize,
-              overridePaint: ui.Paint()..filterQuality = ui.FilterQuality.none,
-            );
-
-            canvas.restore();
-          }
-
-          if (decorator != null) {
-            decorator.applyChain(draw, canvas);
-          } else {
-            draw(canvas);
-          }
-
-          final baked = await recorder.endRecording().toImage(
-            targetW.ceil(),
-            targetH.ceil(),
+          info.bakedImage = trimResult.croppedImage;
+          preRendered.dispose();
+        } else {
+          // Use full original size — no re-trimming
+          info = BakeInfo(
+            ui.Rect.fromLTWH(0, 0, baseOW, baseOH),
+            baseOX,
+            baseOY,
+            baseOW,
+            baseOH,
+            rotate: isRotated,
+            effectiveWidth: baseOW,
+            effectiveHeight: baseOH,
           );
-
-          final trimResult = await _trimImage(baked);
-          if (trimResult != null) {
-            if (trimResult.image != baked) {
-              baked.dispose();
-            }
-            final newInfo = BakeInfo(
-              info.trimmedSrc,
-              info.offsetX + trimResult.trimRect.left,
-              info.offsetY + trimResult.trimRect.top,
-              info.originalWidth,
-              info.originalHeight,
-              effectiveWidth: trimResult.trimRect.width,
-              effectiveHeight: trimResult.trimRect.height,
-            );
-            newInfo.bakedImage = trimResult.image;
-            info = newInfo;
-          } else {
-            info.bakedImage = baked;
-          }
+          info.bakedImage = preRendered;
         }
-
-        keyToInfo[key] = info;
-        spritesToBake.addAll(pending);
       }
 
-      // ignore: avoid_print
-      print('[CompositeAtlas] Unique slots to bake: ${keyToInfo.length}');
+      keyToInfo[key] = info;
+      spritesToBake.addAll(pending);
 
-      final List<RegionFilterKey> sortedKeys = keyToInfo.keys.toList();
-      // Sort by AREA (Descending) - Best for Guillotine packing density.
+      analyzedCount++;
+      // ignore: avoid_print
+      print(
+        '[CompositeAtlas] Slot $analyzedCount/${groupedTasks.length}: '
+        '${pending.first.name} (${info.trimmedSrc.width.toInt()}x${info.trimmedSrc.height.toInt()})'
+        '${needsAlphaAnalysis ? ' [trimmed]' : ' [direct]'}',
+      );
+    }
+
+    // ignore: avoid_print
+    print('[CompositeAtlas] Unique slots to bake: ${keyToInfo.length}');
+
+    // 4. Sort sprites for better packing density
+    final List<RegionFilterKey> sortedKeys = keyToInfo.keys.toList();
+    if (allowRotation) {
+      // For rotation: sort by shortest side (descending) — better for mixed sizes
+      sortedKeys.sort((a, b) {
+        final infoA = keyToInfo[a]!;
+        final infoB = keyToInfo[b]!;
+        final shortA = math.min(
+          infoA.effectiveWidth ?? infoA.trimmedSrc.width,
+          infoA.effectiveHeight ?? infoA.trimmedSrc.height,
+        );
+        final shortB = math.min(
+          infoB.effectiveWidth ?? infoB.trimmedSrc.height,
+          infoB.effectiveHeight ?? infoB.trimmedSrc.height,
+        );
+        return shortB.compareTo(shortA);
+      });
+    } else {
+      // Without rotation: sort by area (descending)
       sortedKeys.sort((a, b) {
         final infoA = keyToInfo[a]!;
         final infoB = keyToInfo[b]!;
@@ -513,184 +783,199 @@ class CompositeAtlasImpl extends CompositeAtlas {
             (infoB.effectiveHeight ?? infoB.trimmedSrc.height);
         return areaB.compareTo(areaA);
       });
+    }
 
-      const double padding = 2.0;
-      final packer = GuillotinePacker(forceSquare ? 4096.0 : maxAtlasWidth);
+    const double padding = 2.0;
 
-      double currentSide = 0;
-      if (forceSquare) {
-        // Start with a small square power-of-two (e.g. 64) OR based on max sprite size
-        double maxSpriteDim = 64.0;
-        for (final key in sortedKeys) {
-          final info = keyToInfo[key]!;
-          final w = (info.effectiveWidth ?? info.trimmedSrc.width) + padding;
-          final h = (info.effectiveHeight ?? info.trimmedSrc.height) + padding;
-          maxSpriteDim = math.max(maxSpriteDim, math.max(w, h));
-        }
-        currentSide = math
-            .pow(2, (math.log(maxSpriteDim) / math.ln2).ceil())
-            .toDouble();
-        packer.addFreeRect(ui.Rect.fromLTWH(0, 0, currentSide, currentSide));
+    // Calculate initial atlas size
+    double maxSpriteDim = 64.0;
+    double totalArea = 0;
+    for (final key in sortedKeys) {
+      final info = keyToInfo[key]!;
+      final w = (info.effectiveWidth ?? info.trimmedSrc.width) + padding;
+      final h = (info.effectiveHeight ?? info.trimmedSrc.height) + padding;
+      maxSpriteDim = math.max(maxSpriteDim, math.max(w, h));
+      totalArea += w * h;
+    }
+
+    // Start with power-of-two based on total area, not just max sprite
+    // This avoids constant growToFit calls that waste space between rows
+    final double areaSide = math.sqrt(totalArea);
+    double initialSide = math.max(maxSpriteDim, areaSide);
+    initialSide = _nextPow2(initialSide.ceil()).toDouble();
+    initialSide = math.max(initialSide, 64.0);
+
+    _AtlasPacker packer;
+    if (packMode == AtlasPackMode.optimal) {
+      packer = _MaxRectsPacker(initialSide);
+    } else {
+      packer = _GuillotinePacker(initialSide);
+    }
+
+    // 5. Pack all sprites
+    final Map<RegionFilterKey, ui.Offset> drawingPositions = {};
+
+    for (final key in sortedKeys) {
+      final info = keyToInfo[key]!;
+      final w = (info.effectiveWidth ?? info.trimmedSrc.width) + padding;
+      final h = (info.effectiveHeight ?? info.trimmedSrc.height) + padding;
+
+      var result = packer.pack(w, h, allowRotation: allowRotation);
+
+      int growAttempts = 0;
+      while (result == null && growAttempts < 20) {
+        packer.growToFit(w, h, allowRotation: allowRotation);
+        if (packer is _GuillotinePacker) packer.mergeFreeRects();
+        if (packer is _MaxRectsPacker) packer.mergeFreeRects();
+        result = packer.pack(w, h, allowRotation: allowRotation);
+        growAttempts++;
+      }
+
+      if (result == null) {
+        // ignore: avoid_print
+        print(
+          '[CompositeAtlas] WARNING: Failed to pack "${key.src.width.toInt()}x${key.src.height.toInt()}" '
+          '(tried ${growAttempts} grows, atlas exceeded)',
+        );
+        continue;
+      }
+
+      drawingPositions[key] = result.offset;
+      info.rotate = result.rotated;
+    }
+
+    // 6. Calculate actual bounds and round up to power-of-two
+    double actualMaxY = 0;
+    double actualMaxX = 0;
+    for (final key in sortedKeys) {
+      final pos = drawingPositions[key]!;
+      final info = keyToInfo[key]!;
+      final visualW = info.effectiveWidth ?? info.trimmedSrc.width;
+      final visualH = info.effectiveHeight ?? info.trimmedSrc.height;
+      final sheetW = info.rotate ? visualH : visualW;
+      final sheetH = info.rotate ? visualW : visualH;
+
+      actualMaxY = math.max(actualMaxY, pos.dy + sheetH + padding);
+      actualMaxX = math.max(actualMaxX, pos.dx + sheetW + padding);
+    }
+
+    // Round up to power-of-two (64, 128, 256, 512, 1024, 2048)
+    final texWidth = _nextPow2(actualMaxX.ceil());
+    final texHeight = _nextPow2(actualMaxY.ceil());
+
+    // ignore: avoid_print
+    print(
+      '[CompositeAtlas] Final size: ${texWidth}x${texHeight} '
+      '(used: ${actualMaxX.toInt()}x${actualMaxY.toInt()}, '
+      '${(totalArea / (texWidth * texHeight) * 100).toStringAsFixed(1)}% fill)',
+    );
+
+    // 6. Render the final atlas
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final basePaint = ui.Paint()..filterQuality = ui.FilterQuality.none;
+
+    for (final key in sortedKeys) {
+      final pos = drawingPositions[key]!;
+      final info = keyToInfo[key]!;
+
+      canvas.save();
+      canvas.translate(pos.dx, pos.dy);
+
+      final visualW = info.effectiveWidth ?? info.trimmedSrc.width;
+      final visualH = info.effectiveHeight ?? info.trimmedSrc.height;
+
+      if (info.rotate) {
+        canvas.translate(0, visualW);
+        canvas.rotate(-math.pi / 2);
+      }
+
+      final dst = ui.Rect.fromLTWH(0, 0, visualW, visualH);
+
+      if (info.bakedImage != null) {
+        canvas.drawImageRect(
+          info.bakedImage!,
+          ui.Rect.fromLTWH(
+            0,
+            0,
+            info.bakedImage!.width.toDouble(),
+            info.bakedImage!.height.toDouble(),
+          ),
+          dst,
+          basePaint,
+        );
       } else {
-        // Start with a small workspace to encourage filling the width before growing
-        packer.addNewSpace(256);
-      }
-
-      final Map<RegionFilterKey, ui.Offset> drawingPositions = {};
-
-      for (final key in sortedKeys) {
-        final info = keyToInfo[key]!;
-        final w = (info.effectiveWidth ?? info.trimmedSrc.width) + padding;
-        final h = (info.effectiveHeight ?? info.trimmedSrc.height) + padding;
-
-        var result = packer.pack(w, h, allowRotation: allowRotation);
-
-        // If it doesn't fit anywhere, expand the atlas vertically (or grow square)
-        while (result == null) {
-          if (forceSquare) {
-            // Expand square: current area is currentSide x currentSide.
-            // Add block to the right: (currentSide, 0, currentSide, currentSide)
-            // Add block below: (0, currentSide, currentSide*2, currentSide)
-            packer.addFreeRect(
-              ui.Rect.fromLTWH(currentSide, 0, currentSide, currentSide),
-            );
-            packer.addFreeRect(
-              ui.Rect.fromLTWH(0, currentSide, currentSide * 2, currentSide),
-            );
-            currentSide *= 2;
-          } else {
-            packer.addNewSpace(256);
-          }
-          result = packer.pack(w, h, allowRotation: allowRotation);
-        }
-
-        drawingPositions[key] = result.offset;
-        info.rotate = result.rotated;
-      }
-
-      // Calculate the tight bounding box of all packed sprites to minimize texture size
-      double actualMaxY = 0;
-      double actualMaxX = 0;
-      for (final key in sortedKeys) {
-        final pos = drawingPositions[key]!;
-        final info = keyToInfo[key]!;
-        // When rotated, the width and height in the atlas are swapped relative to visual
-        final visualW = info.effectiveWidth ?? info.trimmedSrc.width;
-        final visualH = info.effectiveHeight ?? info.trimmedSrc.height;
-        final sheetW = info.rotate ? visualH : visualW;
-        final sheetH = info.rotate ? visualW : visualH;
-
-        actualMaxY = math.max(actualMaxY, pos.dy + sheetH + padding);
-        actualMaxX = math.max(actualMaxX, pos.dx + sheetW + padding);
-      }
-
-      actualMaxY;
-
-      final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder);
-      final basePaint = ui.Paint()..filterQuality = ui.FilterQuality.none;
-
-      for (final key in sortedKeys) {
-        final pos = drawingPositions[key]!;
-        final info = keyToInfo[key]!;
-
-        canvas.save();
-        canvas.translate(pos.dx, pos.dy);
-
-        final visualW = info.effectiveWidth ?? info.trimmedSrc.width;
-        final visualH = info.effectiveHeight ?? info.trimmedSrc.height;
-
-        if (info.rotate) {
-          canvas.translate(0, visualW);
-          canvas.rotate(-math.pi / 2);
-        }
-
         final drawPaint = ui.Paint()
           ..filterQuality = ui.FilterQuality.none
-          ..colorFilter = key.filter;
-
-        final dst = ui.Rect.fromLTWH(0, 0, visualW, visualH);
-
-        if (info.bakedImage != null) {
-          canvas.drawImageRect(
-            info.bakedImage!,
-            ui.Rect.fromLTWH(
-              0,
-              0,
-              info.bakedImage!.width.toDouble(),
-              info.bakedImage!.height.toDouble(),
-            ),
-            dst,
-            basePaint,
-          );
-        } else {
-          canvas.drawImageRect(key.image, info.trimmedSrc, dst, drawPaint);
-        }
-        canvas.restore();
+          ..colorFilter =
+              key.filter ??
+              ui.ColorFilter.mode(
+                ui.Color.fromRGBO(255, 255, 255, 1),
+                ui.BlendMode.modulate,
+              );
+        canvas.drawImageRect(key.image, info.trimmedSrc, dst, drawPaint);
       }
+      canvas.restore();
+    }
 
-      final megaImage = await recorder.endRecording().toImage(
-        actualMaxX.ceil(),
-        actualMaxY.ceil(),
+    final megaImage = await recorder.endRecording().toImage(
+      texWidth,
+      texHeight,
+    );
+
+    for (final info in keyToInfo.values) {
+      info.bakedImage?.dispose();
+    }
+
+    // 7. Build sprite map with GDX-compatible metadata
+    final spriteMap = <String, TexturePackerSprite>{};
+    final megaPage = Page()
+      ..texture = megaImage
+      ..width = megaImage.width
+      ..height = megaImage.height;
+
+    for (final pending in spritesToBake) {
+      final pos = drawingPositions[pending.bakeKey]!;
+      final bakeInfo = keyToInfo[pending.bakeKey]!;
+
+      final newRegion = Region(
+        page: megaPage,
+        name: '${pending.prefix}${pending.name}',
+        left: pos.dx,
+        top: pos.dy,
+        width: bakeInfo.effectiveWidth ?? bakeInfo.trimmedSrc.width,
+        height: bakeInfo.effectiveHeight ?? bakeInfo.trimmedSrc.height,
+        offsetX: bakeInfo.offsetX,
+        offsetY: bakeInfo.offsetY,
+        originalWidth: bakeInfo.originalWidth,
+        originalHeight: bakeInfo.originalHeight,
+        rotate: bakeInfo.rotate,
+        index:
+            (pending.itemCount == 1 &&
+                (pending.itemIndex == null || pending.itemIndex == -1) &&
+                (pending.sprite is! TexturePackerSprite ||
+                    (pending.sprite as TexturePackerSprite).region.index == -1))
+            ? -1
+            : (pending.itemIndex ?? -1),
       );
 
-      for (final info in keyToInfo.values) {
-        info.bakedImage?.dispose();
-      }
+      final newSprite = TexturePackerSprite(newRegion);
+      newSprite.srcSize = newSprite.originalSize;
 
-      final spriteMap = <String, TexturePackerSprite>{};
-      final megaPage = Page()
-        ..texture = megaImage
-        ..width = megaImage.width
-        ..height = megaImage.height;
+      final primaryKey = newRegion.index == -1
+          ? newRegion.name
+          : '${newRegion.name}#${newRegion.index}';
+      spriteMap[primaryKey] = newSprite;
 
-      for (final pending in spritesToBake) {
-        final pos = drawingPositions[pending.bakeKey]!;
-        final bakeInfo = keyToInfo[pending.bakeKey]!;
-
-        final newRegion = Region(
-          page: megaPage,
-          name: '${pending.prefix}${pending.name}',
-          left: pos.dx,
-          top: pos.dy,
-          width: bakeInfo.effectiveWidth ?? bakeInfo.trimmedSrc.width,
-          height: bakeInfo.effectiveHeight ?? bakeInfo.trimmedSrc.height,
-          offsetX: bakeInfo.offsetX,
-          offsetY: bakeInfo.offsetY,
-          originalWidth: bakeInfo.originalWidth,
-          originalHeight: bakeInfo.originalHeight,
-          rotate: bakeInfo.rotate,
-          index:
-              (pending.itemCount == 1 &&
-                  (pending.itemIndex == null || pending.itemIndex == -1) &&
-                  (pending.sprite is! TexturePackerSprite ||
-                      (pending.sprite as TexturePackerSprite).region.index ==
-                          -1))
-              ? -1
-              : (pending.itemIndex ?? -1),
-        );
-
-        final newSprite = TexturePackerSprite(newRegion);
-        newSprite.srcSize = newSprite.originalSize;
-
-        final primaryKey = newRegion.index == -1
-            ? newRegion.name
-            : '${newRegion.name}#${newRegion.index}';
-        spriteMap[primaryKey] = newSprite;
-
-        // Also map original name with prefix for direct frame lookups
-        if (pending.originalName != null) {
-          final prefOrig = '${pending.prefix}${pending.originalName}';
-          if (prefOrig != primaryKey && prefOrig != newRegion.name) {
-            spriteMap[prefOrig] = newSprite;
-          }
+      if (pending.originalName != null) {
+        final prefOrig = '${pending.prefix}${pending.originalName}';
+        if (prefOrig != primaryKey && prefOrig != newRegion.name) {
+          spriteMap[prefOrig] = newSprite;
         }
       }
-
-      return CompositeAtlasImpl._(megaImage, spriteMap, prefixes);
-    } finally {
-      completer.complete();
     }
+
+    return CompositeAtlasImpl._(megaImage, spriteMap, prefixes);
   }
 
   @override
@@ -824,26 +1109,26 @@ class CompositeAtlasImpl extends CompositeAtlas {
   @override
   void dispose() => image.dispose();
 
-  static Future<({ui.Image image, ui.Rect trimRect})?> _trimImage(
+  /// Scans an image's alpha channel and returns the tight non-transparent rect.
+  /// Returns null if the image is fully transparent or already tight.
+  /// Also returns a cropped image to save memory during packing.
+  static Future<({ui.Rect trimRect, ui.Image croppedImage})?> _scanAlphaTight(
     ui.Image image,
   ) async {
     final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     if (byteData == null) return null;
 
     final buffer = byteData.buffer.asUint8List();
-    final int width = image.width;
-    final int height = image.height;
+    final int w = image.width;
+    final int h = image.height;
 
-    int minX = width;
-    int maxX = -1;
-    int minY = height;
-    int maxY = -1;
+    int minX = w, maxX = -1, minY = h, maxY = -1;
     bool found = false;
 
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        final int index = (y * width + x) * 4 + 3;
-        if (buffer[index] > 3) {
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        final int alpha = buffer[(y * w + x) * 4 + 3];
+        if (alpha > 3) {
           if (x < minX) minX = x;
           if (x > maxX) maxX = x;
           if (y < minY) minY = y;
@@ -853,10 +1138,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
       }
     }
 
-    if (!found) {
-      // For empty frames, return a 1x1 transparent rect to avoid null handling issues
-      return (image: image, trimRect: ui.Rect.fromLTWH(0, 0, 1, 1));
-    }
+    if (!found) return null;
 
     final trimRect = ui.Rect.fromLTRB(
       minX.toDouble(),
@@ -865,8 +1147,8 @@ class CompositeAtlasImpl extends CompositeAtlas {
       (maxY + 1).toDouble(),
     );
 
-    if (minX == 0 && minY == 0 && maxX == width - 1 && maxY == height - 1) {
-      return (image: image, trimRect: trimRect);
+    if (minX == 0 && minY == 0 && maxX == w - 1 && maxY == h - 1) {
+      return (trimRect: trimRect, croppedImage: image);
     }
 
     final recorder = ui.PictureRecorder();
@@ -875,13 +1157,22 @@ class CompositeAtlasImpl extends CompositeAtlas {
       image,
       trimRect,
       ui.Rect.fromLTWH(0, 0, trimRect.width, trimRect.height),
-      ui.Paint(),
+      ui.Paint()..filterQuality = ui.FilterQuality.none,
     );
     final cropped = await recorder.endRecording().toImage(
       trimRect.width.toInt(),
       trimRect.height.toInt(),
     );
 
-    return (image: cropped, trimRect: trimRect);
+    return (trimRect: trimRect, croppedImage: cropped);
+  }
+
+  /// Rounds up to the nearest power-of-two, minimum 64.
+  /// Sequence: 64, 128, 256, 512, 1024, 2048, 4096
+  static int _nextPow2(int value) {
+    if (value <= 64) return 64;
+    int pot = 64;
+    while (pot < value) pot <<= 1;
+    return pot;
   }
 }
