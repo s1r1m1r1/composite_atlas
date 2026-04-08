@@ -465,18 +465,20 @@ class RawAtlasGame extends Game {
 
     // Draw borders for each sprite
     final p = Paint()
-      ..color = Colors.white24
+      ..color = const Color.fromARGB(60, 255, 255, 255)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.5;
+      ..strokeWidth = 1.0;
 
     for (final sprite in bakedAtlas!.sprites) {
       final r = sprite.region;
+      final w = r.rotate ? r.height : r.width;
+      final h = r.rotate ? r.width : r.height;
       canvas.drawRect(
         ui.Rect.fromLTWH(
           r.left.toDouble(),
           r.top.toDouble(),
-          r.width.toDouble(),
-          r.height.toDouble(),
+          w.toDouble(),
+          h.toDouble(),
         ),
         p,
       );
@@ -485,7 +487,7 @@ class RawAtlasGame extends Game {
     canvas.drawRect(
       ui.Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
       Paint()
-        ..color = Colors.greenAccent.withOpacity(0.1)
+        ..color = Colors.greenAccent.withOpacity(0.5)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2,
     );
