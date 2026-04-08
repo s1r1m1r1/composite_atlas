@@ -231,7 +231,7 @@ void main() {
 
       expect(decorator.wasCalled, isTrue);
       expect(decorator.context, isNotNull);
-      expect(decorator.context?.itemIndex, equals(0));
+      expect(decorator.context?.itemIndex, equals(-1));
     });
   });
 
@@ -258,8 +258,8 @@ void main() {
       final frames = realAtlas.findSpritesByName('step');
       expect(frames.length, equals(2));
       // step_2 should come before step_10 if sorting works
-      expect(frames[0].region.name, contains('2'));
-      expect(frames[1].region.name, contains('10'));
+      expect(frames[0].region.index, equals(2));
+      expect(frames[1].region.index, equals(10));
     });
   });
 }

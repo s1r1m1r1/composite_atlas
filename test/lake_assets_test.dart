@@ -31,16 +31,18 @@ void main() {
         reason: 'Should find 5 frames for $animName',
       );
 
-      // 4. Verify sorting (natural order _1 to _5)
+      // 4. Verify sorting (natural order index 1 to 5)
       for (var i = 0; i < frames.length; i++) {
         final sprite = frames[i];
-        final expectedName = '${animName}_${i + 1}';
-        // Note: index is -1 in the source atlas names (they are separate regions),
-        // but TexturePackerAtlas handles finding them by base name.
         expect(
           sprite.region.name,
-          contains(expectedName),
-          reason: 'Frame $i should be $expectedName',
+          equals(animName),
+          reason: 'Frame $i should have base name $animName',
+        );
+        expect(
+          sprite.region.index,
+          equals(i + 1),
+          reason: 'Frame $i should have index ${i + 1}',
         );
       }
     });
@@ -178,7 +180,7 @@ void main() {
           final originalSprite = originalAnim.frames[i].sprite as TexturePackerSprite;
           final bakedSprite = bakedAnim.frames[i].sprite as TexturePackerSprite;
 
-          expect(bakedSprite.region.name, equals(originalSprite.region.name),
+          expect(bakedSprite.region.name, equals(name),
               reason: 'Frame $i name mismatch for animation: $name');
 
           // Verify metadata preservation within the animation context

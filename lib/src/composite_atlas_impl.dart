@@ -254,7 +254,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
           final int finalIndex = (baseItemIndex != -1)
               ? baseItemIndex
-              : (localIndices[name] ?? 0);
+              : (animationLengths[name] == 1 ? -1 : (localIndices[name] ?? 0));
           localIndices[name] = (localIndices[name] ?? 0) + 1;
 
           final int itemCount = animationLengths[name] ?? 1;
@@ -302,7 +302,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
         var name = request.name;
         final originalName = request.name;
-        var itemIndex = 0;
+        var itemIndex = -1;
 
         final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
         if (match != null) {
@@ -574,12 +574,14 @@ class CompositeAtlasImpl extends CompositeAtlas {
       for (final key in sortedKeys) {
         final pos = drawingPositions[key]!;
         final info = keyToInfo[key]!;
-        // When rotated, the width and height in the atlas are the same as effective
-        final w = info.effectiveWidth ?? info.trimmedSrc.width;
-        final h = info.effectiveHeight ?? info.trimmedSrc.height;
+        // When rotated, the width and height in the atlas are swapped relative to visual
+        final visualW = info.effectiveWidth ?? info.trimmedSrc.width;
+        final visualH = info.effectiveHeight ?? info.trimmedSrc.height;
+        final sheetW = info.rotate ? visualH : visualW;
+        final sheetH = info.rotate ? visualW : visualH;
 
-        actualMaxY = math.max(actualMaxY, pos.dy + h + padding);
-        actualMaxX = math.max(actualMaxX, pos.dx + w + padding);
+        actualMaxY = math.max(actualMaxY, pos.dy + sheetH + padding);
+        actualMaxX = math.max(actualMaxX, pos.dx + sheetW + padding);
       }
 
       actualMaxY;
@@ -595,16 +597,19 @@ class CompositeAtlasImpl extends CompositeAtlas {
         canvas.save();
         canvas.translate(pos.dx, pos.dy);
 
+        final visualW = info.effectiveWidth ?? info.trimmedSrc.width;
+        final visualH = info.effectiveHeight ?? info.trimmedSrc.height;
+
+        if (info.rotate) {
+          canvas.translate(0, visualW);
+          canvas.rotate(-math.pi / 2);
+        }
+
         final drawPaint = ui.Paint()
           ..filterQuality = ui.FilterQuality.none
           ..colorFilter = key.filter;
 
-        final dst = ui.Rect.fromLTWH(
-          0,
-          0,
-          info.effectiveWidth ?? info.trimmedSrc.width,
-          info.effectiveHeight ?? info.trimmedSrc.height,
-        );
+        final dst = ui.Rect.fromLTWH(0, 0, visualW, visualH);
 
         if (info.bakedImage != null) {
           canvas.drawImageRect(
@@ -695,11 +700,21 @@ class CompositeAtlasImpl extends CompositeAtlas {
   TexturePackerSprite? findSpriteByName(String name) {
     if (_internalSpriteMap.containsKey(name)) return _internalSpriteMap[name];
 
-    // Try prefix-unaware lookup
+    // 1. Try prefix-unaware lookup
     for (final prefix in _prefixes) {
       final combined = '$prefix$name';
       if (_internalSpriteMap.containsKey(combined)) {
         return _internalSpriteMap[combined];
+      }
+    }
+
+    // 2. Handle indexed fallback for singular lookup
+    // If we asked for 'lake', it might be stored as 'lake#0'
+    final lookupNames = <String>{name, ..._prefixes.map((p) => '$p$name')};
+    for (final lookup in lookupNames) {
+      final indexedKey = '$lookup#0';
+      if (_internalSpriteMap.containsKey(indexedKey)) {
+        return _internalSpriteMap[indexedKey];
       }
     }
 
