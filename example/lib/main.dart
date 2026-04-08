@@ -235,26 +235,9 @@ class _RawAtlasViewPageState extends State<RawAtlasViewPage> {
       final pngFile = File('$exportsDir/baked_atlas.png');
       await pngFile.writeAsBytes(bytes);
 
-      final sb = StringBuffer();
-      sb.writeln('baked_atlas.png');
-      sb.writeln('size:${image.width},${image.height}');
-      sb.writeln('format:RGBA8888');
-      sb.writeln('filter:Nearest,Nearest');
-      sb.writeln('repeat:none');
-      for (final sprite in atlas.sprites) {
-        final r = sprite.region;
-        sb.writeln(r.name);
-        if (r.index != -1) sb.writeln('  index:${r.index}');
-        sb.writeln('  rotate:${r.rotate}');
-        sb.writeln('  xy:${r.left.toInt()},${r.top.toInt()}');
-        sb.writeln('  size:${r.width.toInt()},${r.height.toInt()}');
-        sb.writeln(
-          '  orig:${r.originalWidth.toInt()},${r.originalHeight.toInt()}',
-        );
-        sb.writeln('  offset:${r.offsetX.toInt()},${r.offsetY.toInt()}');
-      }
+      final atlasContent = atlas.generateGDXAtlasContent('baked_atlas.png');
       final atlasFile = File('$exportsDir/baked_atlas.atlas');
-      await atlasFile.writeAsString(sb.toString());
+      await atlasFile.writeAsString(atlasContent);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

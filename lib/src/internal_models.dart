@@ -4,10 +4,36 @@ import 'package:flame/components.dart';
 import 'package:flame/rendering.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 import 'package:flutter/painting.dart';
+import 'package:meta/meta.dart';
 import 'atlas_decorator.dart';
 import 'bake_request.dart';
 
+@internal
+class BakeInfo {
+  final ui.Rect trimmedSrc;
+  final double offsetX;
+  final double offsetY;
+  final double originalWidth;
+  final double originalHeight;
+  ui.Image? bakedImage;
+  bool rotate;
+  double? effectiveWidth;
+  double? effectiveHeight;
+
+  BakeInfo(
+    this.trimmedSrc,
+    this.offsetX,
+    this.offsetY,
+    this.originalWidth,
+    this.originalHeight, {
+    this.rotate = false,
+    this.effectiveWidth,
+    this.effectiveHeight,
+  });
+}
+
 /// A internal record of a request to bake a sprite with specific settings.
+@internal
 class PendingBake {
   final Sprite sprite;
   final String prefix;
@@ -196,6 +222,7 @@ class SpriteBakeInfo {
                 sprite.image.height.toDouble(),
               ),
               localSize: scanSrc.size,
+              rotated: isRotated,
               itemIndex: itemIndex,
               itemCount: itemCount,
               padding: EdgeInsets.zero,
@@ -222,14 +249,14 @@ class SpriteBakeInfo {
       if (trimResult != null) {
         // trimResult is relative to the tempImage (un-rotated, renderW x renderH)
         trimmedSrc = trimResult.trimRect;
-        offsetX = trimResult.trimRect.left;
-        // GDX offsetY is from the TOP, but our scan is also from top
-        offsetY = trimResult.trimRect.top;
+        // Final offset is the original sprite's offset PLUS the new trim offset
+        offsetX = key.offsetX + trimResult.trimRect.left;
+        offsetY = key.offsetY + trimResult.trimRect.top;
       } else {
-        // Fully transparent - keep full size
+        // Fully transparent - keep full size of the source region
         trimmedSrc = ui.Rect.fromLTWH(0, 0, renderW, renderH);
-        offsetX = 0;
-        offsetY = 0;
+        offsetX = key.offsetX;
+        offsetY = key.offsetY;
       }
 
       return SpriteBakeInfo(

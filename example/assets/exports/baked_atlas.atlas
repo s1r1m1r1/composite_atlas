@@ -1,0 +1,75 @@
+baked_atlas.png
+size:128,128
+format:RGBA8888
+filter:Nearest,Nearest
+repeat:none
+boy
+  index:1
+  rotate:false
+  xy:51,52
+  size:15,54
+  orig:32,64
+  offset:10,1
+boy
+  index:2
+  rotate:true
+  xy:68,52
+  size:15,53
+  orig:32,64
+  offset:10,1
+boy
+  index:4
+  rotate:true
+  xy:68,52
+  size:15,53
+  orig:32,64
+  offset:10,1
+boy
+  index:3
+  rotate:false
+  xy:68,69
+  size:15,53
+  orig:32,64
+  offset:10,1
+boy
+  index:5
+  rotate:false
+  xy:31,52
+  size:18,53
+  orig:32,64
+  offset:8,1
+boy
+  index:6
+  rotate:false
+  xy:85,69
+  size:13,54
+  orig:32,64
+  offset:9,1
+boy
+  index:7
+  rotate:true
+  xy:31,29
+  size:21,56
+  orig:32,64
+  offset:6,1
+boy
+  index:8
+  rotate:false
+  xy:0,0
+  size:29,52
+  orig:32,64
+  offset:0,2
+boy
+  index:9
+  rotate:false
+  xy:0,54
+  size:28,51
+  orig:32,64
+  offset:2,3
+boy
+  index:10
+  rotate:true
+  xy:31,0
+  size:27,50
+  orig:32,64
+  offset:4,2

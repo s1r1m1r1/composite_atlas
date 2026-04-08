@@ -16,11 +16,15 @@ class AtlasContext {
   /// This is the sum of all [BakePadding]s in the decorator chain.
   final EdgeInsets padding;
 
+  /// Whether the sprite is rotated 90° CCW in the source atlas image.
+  final bool rotated;
+
   AtlasContext({
     required this.atlasImage,
     required this.srcRect,
     required this.atlasSize,
     required this.localSize,
+    this.rotated = false,
     this.itemIndex,
     this.itemCount,
     this.padding = EdgeInsets.zero,

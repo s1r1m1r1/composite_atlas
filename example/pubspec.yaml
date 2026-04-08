@@ -37,6 +37,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   flame: ^1.20.0
   flame_texturepacker: ^5.1.0
+  flame_visual_fx:
+    path: ../../flame_visual_fx
   composite_atlas:
     path: ../
 
@@ -65,6 +67,11 @@ flutter:
   assets:
     - assets/images/
     - assets/images/animations/
+
+  shaders:
+    - assets/shaders/grayscale.frag
+    - assets/shaders/outline.frag
+    - assets/shaders/glitch.frag
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
