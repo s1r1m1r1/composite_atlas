@@ -636,7 +636,24 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
       BakeInfo info;
 
-      if (needsAlphaAnalysis) {
+      // GDX atlas sources: use original trimmed bounds and offsets directly.
+      // No alpha re-scanning needed — GDX already did optimal trimming.
+      final isGdxSource = template is TexturePackerSprite && !hasExplicitRegion;
+
+      if (isGdxSource && decorator == null) {
+        // Use GDX metadata as-is
+        info = BakeInfo(
+          key.src, // trimmed bounds from GDX
+          key.offsetX, // original GDX offset X
+          key.offsetY, // original GDX offset Y
+          key.originalWidth,
+          key.originalHeight,
+          rotate: isRotated,
+          effectiveWidth: key.src.width,
+          effectiveHeight: key.src.height,
+        );
+        // No bakedImage needed — we'll draw directly from the source atlas
+      } else if (needsAlphaAnalysis) {
         // Use SpriteBakeInfo.analyze to scan alpha and crop
         final bakeInfo = await SpriteBakeInfo.analyze(
           key: key,
@@ -650,92 +667,68 @@ class CompositeAtlasImpl extends CompositeAtlas {
           sourceRegion: pending.first.sourceRegion,
         );
 
-        info = BakeInfo(
-          bakeInfo.trimmedSrc,
-          bakeInfo.offsetX,
-          bakeInfo.offsetY,
-          bakeInfo.originalWidth,
-          bakeInfo.originalHeight,
-          rotate: isRotated,
-          effectiveWidth: bakeInfo.trimmedSrc.width,
-          effectiveHeight: bakeInfo.trimmedSrc.height,
-        );
-        info.bakedImage = bakeInfo.bakedImage;
-      } else {
-        // GDX atlas already trimmed — pre-render at full original size
-        // so the baked slot matches the logical frame dimensions.
-        final double baseOW = key.originalWidth;
-        final double baseOH = key.originalHeight;
-        final double baseOX = key.offsetX;
-        final double baseOY = key.offsetY;
+        final bool isSpritesheet = pending.first.sourceRegion != null;
 
-        // For rotated sprites, the source rect in the atlas is 90° CCW.
-        // We need to un-rotate (90° CW) to get the visual representation.
-        final preRenderRecorder = ui.PictureRecorder();
-        final preRenderCanvas = ui.Canvas(preRenderRecorder);
-
-        if (isRotated) {
-          // Un-rotate: source is 90° CCW, so rotate 90° CW
-          // The source rect has swapped w/h, so we draw it rotated
-          preRenderCanvas.translate(baseOX + key.src.height, baseOY);
-          preRenderCanvas.rotate(math.pi / 2);
-          preRenderCanvas.drawImageRect(
-            key.image,
-            key.src,
-            ui.Rect.fromLTWH(0, 0, key.src.width, key.src.height),
-            ui.Paint()..filterQuality = ui.FilterQuality.none,
-          );
-        } else {
-          preRenderCanvas.drawImageRect(
-            key.image,
-            key.src,
-            ui.Rect.fromLTWH(baseOX, baseOY, key.src.width, key.src.height),
-            ui.Paint()..filterQuality = ui.FilterQuality.none,
-          );
-        }
-
-        final preRendered = await preRenderRecorder.endRecording().toImage(
-          baseOW.ceil(),
-          baseOH.ceil(),
-        );
-
-        // Scan alpha to potentially re-trim (optional, for tighter packing)
-        // But keep originalWidth/originalHeight as the logical frame size
-        final trimResult = await _scanAlphaTight(preRendered);
-
-        if (trimResult != null && trim) {
-          // Use trimmed size for packing efficiency, but keep original metadata
-          info = BakeInfo(
+        if (isSpritesheet) {
+          // For spritesheets: pack at original frame size to avoid scaling.
+          // Create a full-frame image with content positioned at the correct offset.
+          final ow = bakeInfo.originalWidth;
+          final oh = bakeInfo.originalHeight;
+          final recorder = ui.PictureRecorder();
+          final canvas = ui.Canvas(recorder);
+          canvas.drawImageRect(
+            bakeInfo.bakedImage ?? template.image,
+            bakeInfo.trimmedSrc,
             ui.Rect.fromLTWH(
-              0,
-              0,
-              trimResult.trimRect.width,
-              trimResult.trimRect.height,
+              bakeInfo.offsetX,
+              bakeInfo.offsetY,
+              bakeInfo.trimmedSrc.width,
+              bakeInfo.trimmedSrc.height,
             ),
-            baseOX + trimResult.trimRect.left,
-            baseOY + trimResult.trimRect.top,
-            baseOW,
-            baseOH,
-            rotate: isRotated,
-            effectiveWidth: trimResult.trimRect.width,
-            effectiveHeight: trimResult.trimRect.height,
+            ui.Paint()..filterQuality = ui.FilterQuality.none,
           );
-          info.bakedImage = trimResult.croppedImage;
-          preRendered.dispose();
-        } else {
-          // Use full original size — no re-trimming
+          final fullFrame = await recorder.endRecording().toImage(
+            ow.ceil(),
+            oh.ceil(),
+          );
+
           info = BakeInfo(
-            ui.Rect.fromLTWH(0, 0, baseOW, baseOH),
-            baseOX,
-            baseOY,
-            baseOW,
-            baseOH,
+            ui.Rect.fromLTWH(0, 0, ow, oh),
+            0, // offset is 0 since content is already positioned
+            0,
+            ow,
+            oh,
             rotate: isRotated,
-            effectiveWidth: baseOW,
-            effectiveHeight: baseOH,
+            effectiveWidth: ow,
+            effectiveHeight: oh,
           );
-          info.bakedImage = preRendered;
+          info.bakedImage = fullFrame;
+        } else {
+          // For non-spritesheets: pack at trimmed size with offsets (GDX-style)
+          info = BakeInfo(
+            bakeInfo.trimmedSrc,
+            bakeInfo.offsetX,
+            bakeInfo.offsetY,
+            bakeInfo.originalWidth,
+            bakeInfo.originalHeight,
+            rotate: isRotated,
+            effectiveWidth: bakeInfo.trimmedSrc.width,
+            effectiveHeight: bakeInfo.trimmedSrc.height,
+          );
+          info.bakedImage = bakeInfo.bakedImage;
         }
+      } else {
+        // Fallback: use sprite's src rect directly (no trim, no GDX metadata)
+        info = BakeInfo(
+          template.src,
+          0,
+          0,
+          template.src.width,
+          template.src.height,
+          rotate: isRotated,
+          effectiveWidth: template.src.width,
+          effectiveHeight: template.src.height,
+        );
       }
 
       keyToInfo[key] = info;
@@ -771,17 +764,14 @@ class CompositeAtlasImpl extends CompositeAtlas {
         return shortB.compareTo(shortA);
       });
     } else {
-      // Without rotation: sort by area (descending)
+      // Without rotation: sort by height (descending) — shelf packing
+      // Taller sprites go first, shorter ones fill horizontal gaps above
       sortedKeys.sort((a, b) {
         final infoA = keyToInfo[a]!;
         final infoB = keyToInfo[b]!;
-        final areaA =
-            (infoA.effectiveWidth ?? infoA.trimmedSrc.width) *
-            (infoA.effectiveHeight ?? infoA.trimmedSrc.height);
-        final areaB =
-            (infoB.effectiveWidth ?? infoB.trimmedSrc.width) *
-            (infoB.effectiveHeight ?? infoB.trimmedSrc.height);
-        return areaB.compareTo(areaA);
+        final hA = infoA.effectiveHeight ?? infoA.trimmedSrc.height;
+        final hB = infoB.effectiveHeight ?? infoB.trimmedSrc.height;
+        return hB.compareTo(hA);
       });
     }
 
@@ -905,15 +895,41 @@ class CompositeAtlasImpl extends CompositeAtlas {
           basePaint,
         );
       } else {
-        final drawPaint = ui.Paint()
-          ..filterQuality = ui.FilterQuality.none
-          ..colorFilter =
-              key.filter ??
-              ui.ColorFilter.mode(
-                ui.Color.fromRGBO(255, 255, 255, 1),
-                ui.BlendMode.modulate,
-              );
-        canvas.drawImageRect(key.image, info.trimmedSrc, dst, drawPaint);
+        // GDX source: draw directly from the source atlas.
+        // If the sprite is rotated in the source GDX atlas, un-rotate it
+        // into a temp buffer first so the new atlas stores it upright.
+        if (key.rotate) {
+          // Source is rotated in GDX — un-rotate to get visual pixels.
+          // This produces a buffer of the correct visual dimensions.
+          final unrotW = key.src.height;
+          final unrotH = key.src.width;
+          final unrotRecorder = ui.PictureRecorder();
+          final unrotCanvas = ui.Canvas(unrotRecorder);
+          unrotCanvas.translate(unrotW, 0);
+          unrotCanvas.rotate(math.pi / 2);
+          unrotCanvas.drawImageRect(
+            key.image,
+            key.src,
+            ui.Rect.fromLTWH(0, 0, key.src.width, key.src.height),
+            basePaint,
+          );
+          final unrotated = await unrotRecorder.endRecording().toImage(
+            unrotW.ceil(),
+            unrotH.ceil(),
+          );
+
+          // Draw at the visual size (un-rotated dimensions).
+          // The canvas transform (info.rotate) will handle atlas-level rotation.
+          canvas.drawImageRect(
+            unrotated,
+            ui.Rect.fromLTWH(0, 0, unrotW, unrotH),
+            ui.Rect.fromLTWH(0, 0, unrotW, unrotH),
+            basePaint,
+          );
+          unrotated.dispose();
+        } else {
+          canvas.drawImageRect(key.image, info.trimmedSrc, dst, basePaint);
+        }
       }
       canvas.restore();
     }
@@ -1108,64 +1124,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
   @override
   void dispose() => image.dispose();
-
-  /// Scans an image's alpha channel and returns the tight non-transparent rect.
-  /// Returns null if the image is fully transparent or already tight.
-  /// Also returns a cropped image to save memory during packing.
-  static Future<({ui.Rect trimRect, ui.Image croppedImage})?> _scanAlphaTight(
-    ui.Image image,
-  ) async {
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    if (byteData == null) return null;
-
-    final buffer = byteData.buffer.asUint8List();
-    final int w = image.width;
-    final int h = image.height;
-
-    int minX = w, maxX = -1, minY = h, maxY = -1;
-    bool found = false;
-
-    for (int y = 0; y < h; y++) {
-      for (int x = 0; x < w; x++) {
-        final int alpha = buffer[(y * w + x) * 4 + 3];
-        if (alpha > 3) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-          found = true;
-        }
-      }
-    }
-
-    if (!found) return null;
-
-    final trimRect = ui.Rect.fromLTRB(
-      minX.toDouble(),
-      minY.toDouble(),
-      (maxX + 1).toDouble(),
-      (maxY + 1).toDouble(),
-    );
-
-    if (minX == 0 && minY == 0 && maxX == w - 1 && maxY == h - 1) {
-      return (trimRect: trimRect, croppedImage: image);
-    }
-
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(recorder);
-    canvas.drawImageRect(
-      image,
-      trimRect,
-      ui.Rect.fromLTWH(0, 0, trimRect.width, trimRect.height),
-      ui.Paint()..filterQuality = ui.FilterQuality.none,
-    );
-    final cropped = await recorder.endRecording().toImage(
-      trimRect.width.toInt(),
-      trimRect.height.toInt(),
-    );
-
-    return (trimRect: trimRect, croppedImage: cropped);
-  }
 
   /// Rounds up to the nearest power-of-two, minimum 64.
   /// Sequence: 64, 128, 256, 512, 1024, 2048, 4096

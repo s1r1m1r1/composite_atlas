@@ -4,6 +4,8 @@ import 'package:flame/sprite.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 import 'package:flutter/material.dart';
 import 'package:composite_atlas/composite_atlas.dart';
+import 'package:file_selector/file_selector.dart';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 void main() {
@@ -417,6 +419,7 @@ class RawAtlasViewPage extends StatefulWidget {
 
 class _RawAtlasViewPageState extends State<RawAtlasViewPage> {
   late RawAtlasGame _game;
+  bool _exporting = false;
 
   @override
   void initState() {
@@ -424,29 +427,81 @@ class _RawAtlasViewPageState extends State<RawAtlasViewPage> {
     _game = RawAtlasGame(widget.atlasSet);
   }
 
+  Future<void> _exportAtlas() async {
+    if (_game.bakedAtlas == null) return;
+    final image = _game.bakedAtlas!.image;
+    setState(() => _exporting = true);
+    try {
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      final bytes = byteData!.buffer.asUint8List();
+      final result = await getSaveLocation(
+        acceptedTypeGroups: [
+          const XTypeGroup(label: 'PNG Image', extensions: ['png']),
+        ],
+        suggestedName: 'baked_atlas.png',
+      );
+      if (result == null) return;
+      final file = File(result.path);
+      await file.writeAsBytes(bytes);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Saved: ${file.path}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return InteractiveViewer(
-      constrained: false,
-      boundaryMargin: const EdgeInsets.all(200),
-      minScale: 0.1,
-      maxScale: 10.0,
-      child: FutureBuilder(
-        future: _game.onLoad(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const SizedBox(
-              width: 500,
-              height: 500,
-              child: Center(child: CircularProgressIndicator()),
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A1A),
+      appBar: AppBar(
+        title: const Text('Raw Atlas Viewer'),
+        backgroundColor: Colors.black,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save_alt),
+            onPressed: _exporting ? null : _exportAtlas,
+            tooltip: 'Export Atlas as PNG',
+          ),
+        ],
+      ),
+      body: InteractiveViewer(
+        constrained: false,
+        boundaryMargin: const EdgeInsets.all(200),
+        minScale: 0.1,
+        maxScale: 10.0,
+        child: FutureBuilder(
+          future: _game.onLoad(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const SizedBox(
+                width: 500,
+                height: 500,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            return SizedBox(
+              width: _game.bakedAtlas?.image.width.toDouble() ?? 500,
+              height: _game.bakedAtlas?.image.height.toDouble() ?? 500,
+              child: GameWidget(game: _game),
             );
-          }
-          return SizedBox(
-            width: _game.bakedAtlas?.image.width.toDouble() ?? 500,
-            height: _game.bakedAtlas?.image.height.toDouble() ?? 500,
-            child: GameWidget(game: _game),
-          );
-        },
+          },
+        ),
       ),
     );
   }
