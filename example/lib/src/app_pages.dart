@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'atlas_comparison_screen.dart';
 import 'debug_shader_baking_screen.dart';
+import 'debug_shader_group_baking_screen.dart';
 import 'raw_atlas_viewer_screen.dart';
 import 'settings_screen.dart';
 
@@ -16,6 +17,11 @@ final List<AppPage> appPages = [
     title: 'Shader Baking Debug',
     icon: Icons.brush,
     builder: (_) => const DebugShaderBakingScreen(),
+  ),
+  AppPage(
+    title: 'Shader Group Baking',
+    icon: Icons.layers,
+    builder: (_) => const DebugShaderGroupBakingScreen(),
   ),
   AppPage(
     title: 'Raw Atlas Viewer',
