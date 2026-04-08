@@ -12,19 +12,27 @@ void main() {
 
 class AtlasSet {
   final String name;
-  final String atlasPath;
+  final String? atlasPath;
   final String imagePath;
-  final String simpleAtlasPath;
+  final String? simpleAtlasPath;
   final bool allowRotation;
   final bool forceSquare;
+  final bool isSpritesheet;
+  final int? frameWidth;
+  final int? frameHeight;
+  final int? frameCount;
 
   AtlasSet({
     required this.name,
-    required this.atlasPath,
+    this.atlasPath,
     required this.imagePath,
-    required this.simpleAtlasPath,
+    this.simpleAtlasPath,
     required this.allowRotation,
     this.forceSquare = false,
+    this.isSpritesheet = false,
+    this.frameWidth,
+    this.frameHeight,
+    this.frameCount,
   });
 }
 
@@ -43,6 +51,15 @@ final List<AtlasSet> atlasSets = [
     simpleAtlasPath: 'assets/images/simple_boy_debug.atlas',
     allowRotation: true,
     forceSquare: true,
+  ),
+  AtlasSet(
+    name: 'Spritesheet (Auto-Sliced)',
+    imagePath: 'animations/boy-32x64-idle-walk.png',
+    allowRotation: true,
+    isSpritesheet: true,
+    frameWidth: 32,
+    frameHeight: 64,
+    frameCount: 10,
   ),
 ];
 
@@ -208,8 +225,50 @@ class ComparisonGame extends Game {
 
   @override
   Future<void> onLoad() async {
-    originalAtlas = await TexturePackerAtlas.load(set.atlasPath);
-    referenceAtlas = await TexturePackerAtlas.load(set.simpleAtlasPath);
+    if (set.isSpritesheet) {
+      // For spritesheets, we slice the image manually into SpriteBakeRequests
+      final image = await images.load(set.imagePath);
+      final List<Sprite> frames = List.generate(
+        set.frameCount!,
+        (i) => Sprite(
+          image,
+          srcPosition: Vector2(i * set.frameWidth!.toDouble(), 0),
+          srcSize: Vector2(
+            set.frameWidth!.toDouble(),
+            set.frameHeight!.toDouble(),
+          ),
+        ),
+      );
+
+      bakedAtlas = await CompositeAtlas.bake(
+        frames
+            .asMap()
+            .entries
+            .map(
+              (e) => SpriteBakeRequest(
+                e.value,
+                name: 'boy_${e.key}',
+                keyPrefix: 'baked_',
+              ),
+            )
+            .toList(),
+        maxAtlasWidth: 128.0,
+        allowRotation: set.allowRotation,
+        forceSquare: set.forceSquare,
+      );
+
+      final originalAnim = SpriteAnimation.spriteList(frames, stepTime: 0.2);
+      final bakedAnim = bakedAtlas!.getAnimation('baked_boy', stepTime: 0.2);
+
+      originalTicker = originalAnim.createTicker();
+      bakedTicker = bakedAnim.createTicker();
+      referenceTicker = originalAnim
+          .createTicker(); // Reference is the original spritesheet
+      return;
+    }
+
+    originalAtlas = await TexturePackerAtlas.load(set.atlasPath!);
+    referenceAtlas = await TexturePackerAtlas.load(set.simpleAtlasPath!);
 
     bakedAtlas = await CompositeAtlas.bake(
       [AtlasBakeRequest(referenceAtlas!, keyPrefix: 'baked_')],
@@ -433,16 +492,41 @@ class RawAtlasGame extends Game {
 
   @override
   Future<void> onLoad() async {
-    final atlas = await TexturePackerAtlas.load(set.atlasPath);
-    // Use rotation for Experiment 1 (Rotated-Packed) but not for Experiment 0 (Aligned)
-    final bool useRotation = set.name.contains('Rotated-Packed');
+    if (set.isSpritesheet) {
+      final image = await images.load(set.imagePath);
+      final List<SpriteBakeRequest> requests = List.generate(
+        set.frameCount!,
+        (i) => SpriteBakeRequest(
+          Sprite(
+            image,
+            srcPosition: Vector2(i * set.frameWidth!.toDouble(), 0),
+            srcSize: Vector2(
+              set.frameWidth!.toDouble(),
+              set.frameHeight!.toDouble(),
+            ),
+          ),
+          name: 'frame_$i',
+        ),
+      );
 
-    bakedAtlas = await CompositeAtlas.bake(
-      [AtlasBakeRequest(atlas)],
-      maxAtlasWidth: 128.0,
-      allowRotation: useRotation,
-      forceSquare: set.forceSquare,
-    );
+      bakedAtlas = await CompositeAtlas.bake(
+        requests,
+        maxAtlasWidth: 128.0,
+        allowRotation: set.allowRotation,
+        forceSquare: set.forceSquare,
+      );
+    } else {
+      final atlas = await TexturePackerAtlas.load(set.atlasPath!);
+      // Use rotation for Experiment 1 (Rotated-Packed) but not for Experiment 0 (Aligned)
+      final bool useRotation = set.name.contains('Rotated-Packed');
+
+      bakedAtlas = await CompositeAtlas.bake(
+        [AtlasBakeRequest(atlas)],
+        maxAtlasWidth: 128.0,
+        allowRotation: useRotation,
+        forceSquare: set.forceSquare,
+      );
+    }
     debugPrint(
       '[Raw View] Baked Atlas: ${bakedAtlas?.image.width}x${bakedAtlas?.image.height}',
     );
