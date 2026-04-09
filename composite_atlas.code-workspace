@@ -4,19 +4,7 @@
 			"path": "."
 		},
 		{
-			"path": "../../apps/tiny_app"
-		},
-		{
-			"path": "../tiny_assets"
-		},
-		{
-			"path": "../tiny_flame_game"
-		},
-		{
-			"path": "../flame_visual_fx"
-		},
-		{
-			"path": ".."
+			"path": "../flame/packages/flame_texturepacker"
 		}
 	],
 	"settings": {}

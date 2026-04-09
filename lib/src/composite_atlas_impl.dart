@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:flame/cache.dart';
 import 'package:flame/components.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
-import 'package:meta/meta.dart';
 
 import 'composite_atlas.dart';
 import 'internal_models.dart';
@@ -49,7 +48,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
     bool allowRotation = true,
     bool forceSquare = false,
     bool trim = true,
-    AtlasPackMode packMode = AtlasPackMode.fast,
     Images? images,
   }) async {
     final Map<RegionFilterKey, List<PendingBake>> groupedTasks = {};
@@ -534,12 +532,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
     initialSide = _nextPow2(initialSide.ceil()).toDouble();
     initialSide = math.max(initialSide, 64.0);
 
-    AtlasPacker packer;
-    if (packMode == AtlasPackMode.optimal) {
-      packer = MaxRectsPacker(initialSide);
-    } else {
-      packer = GuillotinePacker(initialSide);
-    }
+    AtlasPacker packer = GuillotinePacker(initialSide);
 
     // 5. Pack all sprites
     final Map<RegionFilterKey, ui.Offset> drawingPositions = {};
@@ -555,7 +548,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
       while (result == null && growAttempts < 20) {
         packer.growToFit(w, h, allowRotation: allowRotation);
         if (packer is GuillotinePacker) packer.mergeFreeRects();
-        if (packer is MaxRectsPacker) packer.mergeFreeRects();
         result = packer.pack(w, h, allowRotation: allowRotation);
         growAttempts++;
       }
