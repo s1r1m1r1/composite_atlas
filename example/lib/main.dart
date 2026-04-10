@@ -79,22 +79,7 @@ class AtlasSet {
   });
 }
 
-/// Describes a single frame in a spritesheet.
-class SpritesheetFrame {
-  final String name;
-  final double x;
-  final double y;
-  final double width;
-  final double height;
-
-  const SpritesheetFrame({
-    required this.name,
-    required this.x,
-    required this.y,
-    required this.width,
-    required this.height,
-  });
-}
+// SpritesheetFrame is now provided by composite_atlas package
 
 class AppPage {
   final String title;
@@ -329,84 +314,40 @@ class ComparisonGame extends Game {
       // For spritesheets, we slice the image into frames with explicit GDX regions
       final image = await images.load(set.imagePath);
 
-      final List<SpriteBakeRequest> bakeRequests;
-      if (set.frames != null) {
-        // Use explicit frame regions (GDX-style)
-        bakeRequests = set.frames!
-            .map(
-              (frame) => SpriteBakeRequest(
-                Sprite(
-                  image,
-                  srcPosition: Vector2(frame.x, frame.y),
-                  srcSize: Vector2(frame.width, frame.height),
-                ),
-                name: frame.name,
-                keyPrefix: 'baked_',
-                sourceRegion: SpriteSourceRegion(
-                  x: frame.x,
-                  y: frame.y,
-                  width: frame.width,
-                  height: frame.height,
-                  originalWidth: frame.width,
-                  originalHeight: frame.height,
-                ),
-              ),
-            )
-            .toList();
-      } else {
-        // Fallback: generate frames from grid
-        bakeRequests = List.generate(
-          set.frameCount!,
-          (i) => SpriteBakeRequest(
-            Sprite(
-              image,
-              srcPosition: Vector2(i * set.frameWidth!.toDouble(), 0),
-              srcSize: Vector2(
-                set.frameWidth!.toDouble(),
-                set.frameHeight!.toDouble(),
-              ),
-            ),
-            name: 'boy_$i',
-            keyPrefix: 'baked_',
-            sourceRegion: SpriteSourceRegion(
-              x: i * set.frameWidth!.toDouble(),
-              y: 0,
-              width: set.frameWidth!.toDouble(),
-              height: set.frameHeight!.toDouble(),
-              originalWidth: set.frameWidth!.toDouble(),
-              originalHeight: set.frameHeight!.toDouble(),
-            ),
-          ),
-        );
-      }
-
       bakedAtlas = await CompositeAtlas.bake(
-        bakeRequests,
+        [
+          SpritesheetBakeRequest(
+            image,
+            name: 'boy',
+            frameWidth: set.frameWidth?.toDouble(),
+            frameHeight: set.frameHeight?.toDouble(),
+            frameCount: set.frameCount,
+            frames: set.frames,
+            keyPrefix: 'baked_',
+          ),
+        ],
         maxAtlasWidth: 128.0,
         allowRotation: set.allowRotation,
         forceSquare: set.forceSquare,
         trim: true, // Now safe: explicit regions with proper offset computation
       );
 
-      final List<Sprite> frames = bakeRequests
-          .map(
-            (r) => Sprite(
-              image,
-              srcPosition: Vector2(
-                set.frames != null
-                    ? set.frames![bakeRequests.indexOf(r)].x
-                    : r.sourceRegion?.x ?? 0,
-                0,
-              ),
-              srcSize: Vector2(
-                set.frames != null
-                    ? set.frames![bakeRequests.indexOf(r)].width
-                    : r.sourceRegion?.width ?? set.frameWidth!.toDouble(),
-                set.frameHeight!.toDouble(),
-              ),
-            ),
-          )
-          .toList();
+      final List<Sprite> frames = List.generate(
+        set.frameCount ?? set.frames?.length ?? 0,
+        (i) {
+          final x = set.frames != null
+              ? set.frames![i].x
+              : i * set.frameWidth!.toDouble();
+          final w = set.frames != null
+              ? set.frames![i].width
+              : set.frameWidth!.toDouble();
+          return Sprite(
+            image,
+            srcPosition: Vector2(x, 0),
+            srcSize: Vector2(w, set.frameHeight!.toDouble()),
+          );
+        },
+      );
 
       final originalAnim = SpriteAnimation.spriteList(frames, stepTime: 0.2);
       final bakedAnim = bakedAtlas!.getAnimation('baked_boy', stepTime: 0.2);
@@ -657,55 +598,17 @@ class RawAtlasGame extends Game {
     if (set.isSpritesheet) {
       final image = await images.load(set.imagePath);
 
-      final List<SpriteBakeRequest> requests;
-      if (set.frames != null) {
-        requests = set.frames!
-            .map(
-              (frame) => SpriteBakeRequest(
-                Sprite(
-                  image,
-                  srcPosition: Vector2(frame.x, frame.y),
-                  srcSize: Vector2(frame.width, frame.height),
-                ),
-                name: frame.name,
-                sourceRegion: SpriteSourceRegion(
-                  x: frame.x,
-                  y: frame.y,
-                  width: frame.width,
-                  height: frame.height,
-                  originalWidth: frame.width,
-                  originalHeight: frame.height,
-                ),
-              ),
-            )
-            .toList();
-      } else {
-        requests = List.generate(
-          set.frameCount!,
-          (i) => SpriteBakeRequest(
-            Sprite(
-              image,
-              srcPosition: Vector2(i * set.frameWidth!.toDouble(), 0),
-              srcSize: Vector2(
-                set.frameWidth!.toDouble(),
-                set.frameHeight!.toDouble(),
-              ),
-            ),
-            name: 'frame_$i',
-            sourceRegion: SpriteSourceRegion(
-              x: i * set.frameWidth!.toDouble(),
-              y: 0,
-              width: set.frameWidth!.toDouble(),
-              height: set.frameHeight!.toDouble(),
-              originalWidth: set.frameWidth!.toDouble(),
-              originalHeight: set.frameHeight!.toDouble(),
-            ),
-          ),
-        );
-      }
-
       bakedAtlas = await CompositeAtlas.bake(
-        requests,
+        [
+          SpritesheetBakeRequest(
+            image,
+            name: 'frame',
+            frameWidth: set.frameWidth?.toDouble(),
+            frameHeight: set.frameHeight?.toDouble(),
+            frameCount: set.frameCount,
+            frames: set.frames,
+          ),
+        ],
         maxAtlasWidth: 128.0,
         allowRotation: set.allowRotation,
         forceSquare: set.forceSquare,

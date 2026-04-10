@@ -113,3 +113,68 @@ class ImageBakeRequest extends BakeRequest {
     super.nameTransformer,
   });
 }
+
+/// Describes a single frame in a spritesheet.
+class SpritesheetFrame {
+  final String name;
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+
+  /// Original width of the frame (logical size). Defaults to [width] if null.
+  final double? originalWidth;
+
+  /// Original height of the frame (logical size). Defaults to [height] if null.
+  final double? originalHeight;
+
+  const SpritesheetFrame({
+    required this.name,
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+    this.originalWidth,
+    this.originalHeight,
+  });
+}
+
+/// Request to bake multiple sprites from a single [image] (spritesheet).
+/// 
+/// Can be used as a uniform grid by providing [frameWidth] and [frameHeight],
+/// or with explicit regions by providing [frames].
+class SpritesheetBakeRequest extends BakeRequest {
+  final ui.Image image;
+
+  /// Base name for grid-based sprites (e.g. "player" -> "player_0", "player_1").
+  /// If [frames] are provided, this name is used as an additional prefix if not empty.
+  final String name;
+
+  /// Width of a single frame in a uniform grid.
+  final double? frameWidth;
+
+  /// Height of a single frame in a uniform grid.
+  final double? frameHeight;
+
+  /// Total number of frames to take from the grid.
+  final int? frameCount;
+
+  /// Explicit frame definitions. If provided, grid settings are ignored.
+  final List<SpritesheetFrame>? frames;
+
+  SpritesheetBakeRequest(
+    this.image, {
+    required this.name,
+    this.frameWidth,
+    this.frameHeight,
+    this.frameCount,
+    this.frames,
+    super.filter,
+    super.decorator,
+    super.keyPrefix,
+    super.nameTransformer,
+  }) : assert(
+          (frameWidth != null && frameHeight != null) || frames != null,
+          'Either grid dimensions (frameWidth, frameHeight) or explicit frames must be provided.',
+        );
+}

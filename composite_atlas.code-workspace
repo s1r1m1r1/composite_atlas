@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../flame/packages/flame_texturepacker"
+		},
+		{
+			"path": "../flame"
 		}
 	],
 	"settings": {}

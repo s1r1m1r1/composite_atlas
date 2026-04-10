@@ -233,6 +233,53 @@ void main() {
       expect(decorator.context, isNotNull);
       expect(decorator.context?.itemIndex, equals(-1));
     });
+
+    test('SpritesheetBakeRequest grid-based', () async {
+      final image = await createTestImage(width: 64, height: 32); // 2x1 grid of 32x32
+      final atlas = await CompositeAtlas.bake([
+        SpritesheetBakeRequest(
+          image,
+          name: 'hero',
+          frameWidth: 32,
+          frameHeight: 32,
+        ),
+      ]);
+
+      expect(atlas.allSpriteNames, contains('hero_0'));
+      expect(atlas.allSpriteNames, contains('hero_1'));
+
+      final anim = atlas.findSpritesByName('hero');
+      expect(anim.length, equals(2));
+    });
+
+    test('SpritesheetBakeRequest explicit frames', () async {
+      final image = await createTestImage(width: 64, height: 32);
+      final atlas = await CompositeAtlas.bake([
+        SpritesheetBakeRequest(
+          image,
+          name: 'custom',
+          frames: [
+            const SpritesheetFrame(
+              name: 'f1',
+              x: 0,
+              y: 0,
+              width: 32,
+              height: 32,
+            ),
+            const SpritesheetFrame(
+              name: 'f2',
+              x: 32,
+              y: 0,
+              width: 32,
+              height: 32,
+            ),
+          ],
+        ),
+      ]);
+
+      expect(atlas.allSpriteNames, contains('f1'));
+      expect(atlas.allSpriteNames, contains('f2'));
+    });
   });
 
   group('Sprite Lookup', () {

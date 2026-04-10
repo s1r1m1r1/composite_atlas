@@ -57,17 +57,37 @@ class CompositeAtlasImpl extends CompositeAtlas {
     // 1. Pre-calculate animation lengths for proper indexing
     for (final request in requests) {
       if (request.keyPrefix != null) prefixes.add(request.keyPrefix!);
-      if (request is AtlasBakeRequest) {
-        for (final sprite in request.atlas.sprites) {
-          var name = sprite.region.name;
-          if (sprite.region.index == -1) {
-            final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
-            if (match != null) {
-              name = match.group(1)!;
+      switch (request) {
+        case AtlasBakeRequest():
+          for (final sprite in request.atlas.sprites) {
+            var name = sprite.region.name;
+            if (sprite.region.index == -1) {
+              final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
+              if (match != null) {
+                name = match.group(1)!;
+              }
             }
+            animationLengths[name] = (animationLengths[name] ?? 0) + 1;
           }
-          animationLengths[name] = (animationLengths[name] ?? 0) + 1;
-        }
+
+        case SpritesheetBakeRequest(:final frames):
+          if (frames != null) {
+            for (final frame in frames) {
+              var name = frame.name;
+              final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
+              if (match != null) {
+                name = match.group(1)!;
+              }
+              animationLengths[name] = (animationLengths[name] ?? 0) + 1;
+            }
+          } else {
+            animationLengths[request.name] =
+                (animationLengths[request.name] ?? 0) +
+                (request.frameCount ?? 1);
+          }
+        case SpriteBakeRequest():
+        case ImageBakeRequest():
+          break;
       }
     }
 
@@ -240,6 +260,90 @@ class CompositeAtlasImpl extends CompositeAtlas {
           );
 
           groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
+        case SpritesheetBakeRequest():
+          final List<SpritesheetFrame> frames = [];
+          if (request.frames != null) {
+            frames.addAll(request.frames!);
+          } else {
+            final fw = request.frameWidth!;
+            final fh = request.frameHeight!;
+            final cols = (request.image.width / fw).floor();
+            final count =
+                request.frameCount ??
+                (cols * (request.image.height / fh).floor());
+
+            for (int i = 0; i < count; i++) {
+              final x = (i % cols) * fw;
+              final y = (i / cols).floor() * fh;
+              frames.add(
+                SpritesheetFrame(
+                  name: '${request.name}_$i',
+                  x: x.toDouble(),
+                  y: y.toDouble(),
+                  width: fw,
+                  height: fh,
+                ),
+              );
+            }
+          }
+
+          for (final frame in frames) {
+            var name = frame.name;
+            final originalName = frame.name;
+            var itemIndex = -1;
+
+            final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
+            if (match != null) {
+              name = match.group(1)!;
+              itemIndex = int.parse(match.group(2)!);
+            }
+
+            final double ow = frame.originalWidth ?? frame.width;
+            final double oh = frame.originalHeight ?? frame.height;
+            final double ox = (ow - frame.width) / 2.0;
+            final double oy = (oh - frame.height) / 2.0;
+
+            final bakeKey = RegionFilterKey(
+              request.image,
+              ui.Rect.fromLTWH(frame.x, frame.y, frame.width, frame.height),
+              request.filter,
+              request.decorator,
+              itemIndex,
+              animationLengths[name] ?? 1,
+              ox,
+              oy,
+              ow,
+              oh,
+            );
+
+            final pending = PendingBake(
+              Sprite(
+                request.image,
+                srcPosition: Vector2(frame.x, frame.y),
+                srcSize: Vector2(frame.width, frame.height),
+              ),
+              prefix,
+              request.nameTransformer != null
+                  ? request.nameTransformer!(name)
+                  : name,
+              request.filter,
+              request.decorator,
+              itemIndex,
+              animationLengths[name] ?? 1,
+              bakeKey,
+              originalName: originalName,
+              sourceRegion: SpriteSourceRegion(
+                x: frame.x,
+                y: frame.y,
+                width: frame.width,
+                height: frame.height,
+                originalWidth: ow,
+                originalHeight: oh,
+              ),
+            );
+
+            groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
+          }
       }
     }
 
