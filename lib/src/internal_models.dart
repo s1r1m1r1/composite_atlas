@@ -175,6 +175,7 @@ class SpriteBakeInfo {
     required int? itemIndex,
     required int? itemCount,
     SpriteSourceRegion? sourceRegion,
+    bool trim = true,
   }) async {
     try {
       // Determine source rect to analyze
@@ -189,7 +190,7 @@ class SpriteBakeInfo {
       // Render the sprite into a temp buffer at its source size
       final recorder = ui.PictureRecorder();
       final canvas = ui.Canvas(recorder);
-      final paint = ui.Paint()..filterQuality = ui.FilterQuality.none;
+      final ui.Paint paint = ui.Paint()..filterQuality = ui.FilterQuality.none;
       if (filter != null) paint.colorFilter = filter;
 
       final double renderW = isRotated ? scanSrc.height : scanSrc.width;
@@ -206,7 +207,7 @@ class SpriteBakeInfo {
         c.drawImageRect(
           sprite.image,
           scanSrc,
-          ui.Rect.fromLTWH(0, 0, renderW, renderH),
+          ui.Rect.fromLTWH(0, 0, scanSrc.width, scanSrc.height),
           paint,
         );
       }
@@ -240,7 +241,7 @@ class SpriteBakeInfo {
       );
 
       // Scan alpha channel to find tight bounds
-      final trimResult = await _scanAlpha(tempImage);
+      final trimResult = trim ? await _scanAlpha(tempImage) : null;
 
       ui.Rect trimmedSrc;
       double offsetX;
