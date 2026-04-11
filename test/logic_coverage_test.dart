@@ -1,32 +1,24 @@
 import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flame/components.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 import 'package:composite_atlas/composite_atlas.dart';
-import 'package:composite_atlas/src/internal_models.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('CompositeAtlas Logic Coverage', () {
-    
     test('Throws StateError on empty bake requests', () async {
-      expect(
-        () => CompositeAtlas.bake([]),
-        throwsStateError,
-      );
+      expect(() => CompositeAtlas.bake([]), throwsStateError);
     });
 
     test('Packing produces valid atlas', () async {
       final img1 = await createSolidImage(32, 32, const ui.Color(0xFFFF0000));
       final img2 = await createSolidImage(64, 32, const ui.Color(0xFF00FF00));
 
-      final atlas = await CompositeAtlas.bake(
-        [
-          ImageBakeRequest(img1, name: 'red'),
-          ImageBakeRequest(img2, name: 'green'),
-        ],
-      );
+      final atlas = await CompositeAtlas.bake([
+        ImageBakeRequest(img1, name: 'red'),
+        ImageBakeRequest(img2, name: 'green'),
+      ]);
 
       expect(atlas.findSpriteByName('red'), isNotNull);
       expect(atlas.findSpriteByName('green'), isNotNull);
@@ -56,19 +48,17 @@ void main() {
       final img = await createTransparentBorderedImage(10, 10, 50, 50);
 
       // 1. With trim: true
-      final atlasTrimmed = await CompositeAtlas.bake(
-        [ImageBakeRequest(img, name: 'sprite')],
-        trim: true,
-      );
+      final atlasTrimmed = await CompositeAtlas.bake([
+        ImageBakeRequest(img, name: 'sprite'),
+      ], trim: true);
       final spriteTrimmed = atlasTrimmed.findSpriteByName('sprite')!;
       // Should be trimmed back to ~10x10
       expect(spriteTrimmed.region.width, closeTo(10, 1.0));
 
       // 2. With trim: false
-      final atlasFull = await CompositeAtlas.bake(
-        [ImageBakeRequest(img, name: 'sprite')],
-        trim: false,
-      );
+      final atlasFull = await CompositeAtlas.bake([
+        ImageBakeRequest(img, name: 'sprite'),
+      ], trim: false);
       final spriteFull = atlasFull.findSpriteByName('sprite')!;
       // Should preserve full 50x50 size
       expect(spriteFull.region.width, equals(50.0));
@@ -76,16 +66,14 @@ void main() {
 
     test('nameTransformer modifies keys correctly', () async {
       final img = await createSolidImage(10, 10, const ui.Color(0xFFFF00FF));
-      
-      final atlas = await CompositeAtlas.bake(
-        [
-          ImageBakeRequest(
-            img, 
-            name: 'hero', 
-            nameTransformer: (name) => 'transformed_$name',
-          ),
-        ],
-      );
+
+      final atlas = await CompositeAtlas.bake([
+        ImageBakeRequest(
+          img,
+          name: 'hero',
+          nameTransformer: (name) => 'transformed_$name',
+        ),
+      ]);
 
       expect(atlas.findSpriteByName('hero'), isNull);
       expect(atlas.findSpriteByName('transformed_hero'), isNotNull);
@@ -110,7 +98,7 @@ void main() {
 
     test('Fast Path (GDX source) vs Alpha Analysis Path', () async {
       final img = await createSolidImage(32, 32, const ui.Color(0xFF112233));
-      
+
       // We'll simulate a GDX source by creating a TexturePackerSprite manually
       final bakedGdx = await CompositeAtlas.bake([
         ImageBakeRequest(img, name: 'gdx_like'),
@@ -138,10 +126,15 @@ Future<ui.Image> createSolidImage(int w, int h, ui.Color color) async {
 }
 
 /// Helper to create an image with content centered in a larger transparent area
-Future<ui.Image> createTransparentBorderedImage(int contentW, int contentH, int fullW, int fullH) async {
+Future<ui.Image> createTransparentBorderedImage(
+  int contentW,
+  int contentH,
+  int fullW,
+  int fullH,
+) async {
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
-  
+
   final paint = ui.Paint()..color = const ui.Color(0xFFFF0000);
   final rect = ui.Rect.fromCenter(
     center: ui.Offset(fullW / 2, fullH / 2),
@@ -149,6 +142,6 @@ Future<ui.Image> createTransparentBorderedImage(int contentW, int contentH, int 
     height: contentH.toDouble(),
   );
   canvas.drawRect(rect, paint);
-  
+
   return recorder.endRecording().toImage(fullW, fullH);
 }

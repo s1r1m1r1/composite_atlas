@@ -493,7 +493,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
     print('[CompositeAtlas] Unique slots to bake: ${keyToInfo.length}');
 
     // 3.5. Deduplicate sprites with identical visual content
-    Future<String> _computePixelHash(
+    Future<String> computePixelHash(
       RegionFilterKey key,
       PendingBake pending,
     ) async {
@@ -549,7 +549,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
     final Map<RegionFilterKey, String> keySigs = {};
     for (final key in keyToInfo.keys) {
-      keySigs[key] = await _computePixelHash(key, keyToPending[key]!);
+      keySigs[key] = await computePixelHash(key, keyToPending[key]!);
     }
 
     final Map<RegionFilterKey, RegionFilterKey> dedupMap = {};
@@ -676,12 +676,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
       final dst = ui.Rect.fromLTWH(0, 0, visualW, visualH);
 
       if (info.bakedImage != null) {
-        canvas.drawImageRect(
-          info.bakedImage!,
-          info.trimmedSrc,
-          dst,
-          basePaint,
-        );
+        canvas.drawImageRect(info.bakedImage!, info.trimmedSrc, dst, basePaint);
       } else {
         if (key.rotate) {
           final unrotW = key.src.height;
@@ -747,7 +742,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
         offsetY: bakeInfo.offsetY,
         originalWidth: bakeInfo.originalWidth,
         originalHeight: bakeInfo.originalHeight,
-        index: pending.itemIndex,
+        index: pending.itemIndex ?? -1,
         rotate: bakeInfo.rotate,
       );
 
