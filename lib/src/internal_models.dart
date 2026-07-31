@@ -250,9 +250,13 @@ class SpriteBakeInfo {
       if (trimResult != null) {
         // trimResult is relative to the tempImage (un-rotated, renderW x renderH)
         trimmedSrc = trimResult.trimRect;
-        // Final offset is the original sprite's offset PLUS the new trim offset
+        // Final offset in GDX convention:
+        //   offsetX = original left offset + additional left trim
+        //   offsetY = original bottom offset + additional bottom trim
+        // GDX offsetY is measured from the bottom (Y-up), so:
+        //   additional bottom trim = renderH - trimRect.bottom
         offsetX = key.offsetX + trimResult.trimRect.left;
-        offsetY = key.offsetY + trimResult.trimRect.top;
+        offsetY = key.offsetY + renderH - trimResult.trimRect.bottom;
       } else {
         // Fully transparent - keep full size of the source region
         trimmedSrc = ui.Rect.fromLTWH(0, 0, renderW, renderH);

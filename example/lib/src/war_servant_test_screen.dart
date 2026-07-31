@@ -206,11 +206,21 @@ class _SpritePainter extends CustomPainter {
     final w = r.rotate ? r.height : r.width;
     final h = r.rotate ? r.width : r.height;
 
-    // The offset shifts the sprite from its center.
-    // Compute the actual rendered center position:
-    //   visualCenter = screenCenter + offset * scale
-    final visualCenterX = size.width / 2 + r.offsetX * scale;
-    final visualCenterY = size.height / 2 + r.offsetY * scale;
+    // Use Flame-convention offset (Y-down from top-left of original bounding box).
+    // sprite.offset converts GDX offsetY (from bottom) to Flame Y-down.
+    final flameOffset = sprite.offset;
+
+    // The sprite is rendered at canvas center with Anchor.center.
+    // The packed sprite's top-left is at:
+    //   screenCenter - originalSize/2 + flameOffset
+    final packedTopLeftX =
+        size.width / 2 - r.originalWidth * scale / 2 + flameOffset.x * scale;
+    final packedTopLeftY =
+        size.height / 2 - r.originalHeight * scale / 2 + flameOffset.y * scale;
+
+    // Visual center of the packed sprite
+    final visualCenterX = packedTopLeftX + w * scale / 2;
+    final visualCenterY = packedTopLeftY + h * scale / 2;
 
     // The border is centered on the visual center, with scaled dimensions
     final borderX = visualCenterX - w * scale / 2;

@@ -65,6 +65,7 @@ flutter:
   assets:
     - assets/images/
     - assets/images/animations/
+    - assets/images/pong/
 
   shaders:
     - assets/shaders/grayscale.frag

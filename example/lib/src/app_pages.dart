@@ -9,6 +9,7 @@ import 'settings_screen.dart';
 import 'spritesheet_bake_screen.dart';
 import 'atlas_rotation_bake_screen.dart';
 import 'war_servant_test_screen.dart';
+import 'pong_test_screen.dart';
 
 final List<AppPage> appPages = [
   AppPage(
@@ -45,6 +46,11 @@ final List<AppPage> appPages = [
     title: 'War Servant Test',
     icon: Icons.play_arrow,
     builder: (_) => const WarServantTestScreen(),
+  ),
+  AppPage(
+    title: 'Pong Test',
+    icon: Icons.sports_esports,
+    builder: (_) => const PongTestScreen(),
   ),
   AppPage(
     title: 'Settings',

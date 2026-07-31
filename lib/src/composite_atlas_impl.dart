@@ -437,6 +437,13 @@ class CompositeAtlasImpl extends CompositeAtlas {
         if (isSpritesheet) {
           final ow = bakeInfo.originalWidth;
           final oh = bakeInfo.originalHeight;
+          // bakeInfo.offsetY is now in GDX convention (from bottom, Y-up).
+          // Canvas drawing needs Y-down from top:
+          //   drawY = originalHeight - trimmedHeight - gdxOffsetY
+          final drawY =
+              bakeInfo.originalHeight -
+              bakeInfo.trimmedSrc.height -
+              bakeInfo.offsetY;
           final recorder = ui.PictureRecorder();
           final canvas = ui.Canvas(recorder);
           canvas.drawImageRect(
@@ -444,7 +451,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
             bakeInfo.trimmedSrc,
             ui.Rect.fromLTWH(
               bakeInfo.offsetX,
-              bakeInfo.offsetY,
+              drawY,
               bakeInfo.trimmedSrc.width,
               bakeInfo.trimmedSrc.height,
             ),
@@ -741,7 +748,9 @@ class CompositeAtlasImpl extends CompositeAtlas {
         format: ui.ImageByteFormat.rawRgba,
       );
       final rgba = byteData!.buffer.asUint8List();
-      print('[CompositeAtlas] Encoding ${compressFormat.name} ${texWidth}x${texHeight}, rgba=${rgba.length} bytes');
+      print(
+        '[CompositeAtlas] Encoding ${compressFormat.name} ${texWidth}x${texHeight}, rgba=${rgba.length} bytes',
+      );
       try {
         compressedData = BasisuCodec.encode(
           rgba,
