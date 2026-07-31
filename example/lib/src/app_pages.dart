@@ -8,6 +8,7 @@ import 'raw_atlas_viewer_screen.dart';
 import 'settings_screen.dart';
 import 'spritesheet_bake_screen.dart';
 import 'atlas_rotation_bake_screen.dart';
+import 'war_servant_test_screen.dart';
 
 final List<AppPage> appPages = [
   AppPage(
@@ -39,6 +40,11 @@ final List<AppPage> appPages = [
     title: 'Raw Atlas Viewer',
     icon: Icons.grid_view,
     builder: (_) => const RawAtlasViewerScreen(),
+  ),
+  AppPage(
+    title: 'War Servant Test',
+    icon: Icons.play_arrow,
+    builder: (_) => const WarServantTestScreen(),
   ),
   AppPage(
     title: 'Settings',

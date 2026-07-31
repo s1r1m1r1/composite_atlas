@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flame/cache.dart';
 import 'package:flame/game.dart';
@@ -7,6 +9,7 @@ import 'package:flame/rendering.dart';
 import 'package:flame/sprite.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 import 'package:flutter/material.dart' hide Image;
+import 'package:flutter/services.dart';
 import 'package:composite_atlas/composite_atlas.dart';
 
 class AtlasRotationBakeScreen extends StatefulWidget {
@@ -23,6 +26,75 @@ class _AtlasRotationBakeScreenState extends State<AtlasRotationBakeScreen> {
   bool _outline = true;
 
   CompositeAtlas? _bakedAtlas;
+
+  Future<void> _exportAtlas(BuildContext context) async {
+    final atlas = _bakedAtlas;
+    if (atlas == null) return;
+
+    try {
+      // 1. Export RGBA PNG
+      final pngData = await atlas.image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      final pngBytes = pngData!.buffer.asUint8List();
+
+      // 2. Export compressed ASTC blocks
+      final impl = atlas as CompositeAtlasImpl;
+      final astcData = impl.compressedData;
+
+      // Save to ~/Downloads (sandbox-safe on macOS)
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      final dir = Directory('$home/Downloads/atlas_export');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+
+      final pngFile = File('${dir.path}/atlas.png');
+      await pngFile.writeAsBytes(pngBytes);
+
+      if (astcData != null) {
+        final astcFile = File('${dir.path}/atlas.astc.raw');
+        await astcFile.writeAsBytes(astcData);
+
+        // Also save as KTX2 for validation
+        final ktx2File = File('${dir.path}/atlas_uastc.ktx2');
+        await ktx2File.writeAsBytes(astcData);
+      }
+
+      // 3. Export GDX atlas metadata
+      final atlasContent = atlas.generateGDXAtlasContent('atlas.png');
+      final atlasFile = File('${dir.path}/atlas.atlas');
+      await atlasFile.writeAsString(atlasContent);
+
+      if (context.mounted) {
+        final debugInfo = 'Atlas: ${atlas.image.width}x${atlas.image.height}\n'
+            'PNG: ${pngBytes.length} bytes\n'
+            'ASTC: ${astcData?.length ?? 0} bytes\n'
+            'Dir: ${dir.path}\n'
+            'Format: ${atlas.compressFormat?.name ?? "none"}';
+        await Clipboard.setData(ClipboardData(text: debugInfo));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Exported to ${dir.path}\n'
+              'PNG: ${pngBytes.length} bytes\n'
+              'ASTC: ${astcData?.length ?? 0} bytes\n'
+              '(copied to clipboard)',
+            ),
+            backgroundColor: Colors.green.shade800,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -123,11 +195,57 @@ class _AtlasRotationBakeScreenState extends State<AtlasRotationBakeScreen> {
                       },
                     ),
                   ),
+                  const Divider(color: Colors.white24, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _ExportInfo(bakedAtlas: _bakedAtlas!),
+                        const SizedBox(height: 8),
+                        ElevatedButton.icon(
+                          onPressed: () => _exportAtlas(context),
+                          icon: const Icon(Icons.save_alt, size: 18),
+                          label: const Text('Export PNG + ASTC'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.shade800,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
         ],
       ),
+    );
+  }
+}
+
+class _ExportInfo extends StatelessWidget {
+  final CompositeAtlas bakedAtlas;
+  const _ExportInfo({required this.bakedAtlas});
+
+  @override
+  Widget build(BuildContext context) {
+    final impl = bakedAtlas as CompositeAtlasImpl;
+    final astcSize = impl.compressedData?.length ?? 0;
+    final rawSize = bakedAtlas.image.width * bakedAtlas.image.height * 4;
+    final ratio = astcSize > 0 ? (rawSize / astcSize).toStringAsFixed(1) : '-';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _InfoRow(
+          'Atlas',
+          '${bakedAtlas.image.width}x${bakedAtlas.image.height}',
+        ),
+        _InfoRow('Sprites', '${bakedAtlas.sprites.length}'),
+        _InfoRow('RGBA', '${(rawSize / 1024).toStringAsFixed(0)} KB'),
+        _InfoRow('ASTC', '${(astcSize / 1024).toStringAsFixed(0)} KB'),
+        _InfoRow('Ratio', '${ratio}x'),
+      ],
     );
   }
 }
@@ -234,6 +352,7 @@ class AtlasRotationBakeGame extends FlameGame {
       [AtlasBakeRequest(atlas, keyPrefix: 'baked_', decorator: decorator)],
       allowRotation: allowRotation,
       trim: trim,
+      compressFormat: CompressFormat.uastc4x4,
     );
 
     onAtlasBaked?.call(bakedAtlas!);

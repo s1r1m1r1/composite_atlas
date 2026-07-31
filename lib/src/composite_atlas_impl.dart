@@ -1,6 +1,8 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:basisu_codec/basisu_codec.dart';
 import 'package:flame/cache.dart';
 import 'package:flame/components.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
@@ -21,11 +23,22 @@ class CompositeAtlasImpl extends CompositeAtlas {
   final Set<String> _prefixes;
   final Map<String, List<TexturePackerSprite>> _indexedSprites = {};
 
+  /// Compressed texture data (BC7/ASTC blocks) if compression was requested.
+  final Uint8List? compressedData;
+
+  /// The format used for compression, if any.
+  final CompressFormat? compressFormat;
+
   /// External access for tests
   Map<String, TexturePackerSprite> get spriteMap => _internalSpriteMap;
 
-  CompositeAtlasImpl._(this.image, this._internalSpriteMap, this._prefixes)
-    : super(_internalSpriteMap.values.toSet().toList()) {
+  CompositeAtlasImpl._(
+    this.image,
+    this._internalSpriteMap,
+    this._prefixes, {
+    this.compressedData,
+    this.compressFormat,
+  }) : super(_internalSpriteMap.values.toSet().toList()) {
     _indexSprites();
   }
 
@@ -64,6 +77,8 @@ class CompositeAtlasImpl extends CompositeAtlas {
     bool forceSquare = false,
     bool trim = true,
     Images? images,
+    CompressFormat? compressFormat,
+    int compressQuality = 50,
   }) async {
     final Map<RegionFilterKey, List<PendingBake>> groupedTasks = {};
     final Map<String, int> animationLengths = {};
@@ -719,6 +734,28 @@ class CompositeAtlasImpl extends CompositeAtlas {
       info.bakedImage?.dispose();
     }
 
+    // Step 5: Compress to GPU format if requested
+    Uint8List? compressedData;
+    if (compressFormat != null) {
+      final byteData = await megaImage.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      );
+      final rgba = byteData!.buffer.asUint8List();
+      print('[CompositeAtlas] Encoding ${compressFormat.name} ${texWidth}x${texHeight}, rgba=${rgba.length} bytes');
+      try {
+        compressedData = BasisuCodec.encode(
+          rgba,
+          width: texWidth,
+          height: texHeight,
+          format: compressFormat,
+          quality: compressQuality,
+        );
+        print('[CompositeAtlas] Compressed: ${compressedData.length} bytes');
+      } catch (e) {
+        print('[CompositeAtlas] Compression FAILED: $e');
+      }
+    }
+
     // 7. Build sprite map with GDX-compatible metadata
     final spriteMap = <String, TexturePackerSprite>{};
     final megaPage = Page()
@@ -760,7 +797,13 @@ class CompositeAtlasImpl extends CompositeAtlas {
       }
     }
 
-    return CompositeAtlasImpl._(megaImage, spriteMap, prefixes);
+    return CompositeAtlasImpl._(
+      megaImage,
+      spriteMap,
+      prefixes,
+      compressedData: compressedData,
+      compressFormat: compressFormat,
+    );
   }
 
   @override
