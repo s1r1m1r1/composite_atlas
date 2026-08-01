@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../main.dart';
 
 import 'atlas_comparison_screen.dart';
@@ -10,6 +11,7 @@ import 'spritesheet_bake_screen.dart';
 import 'atlas_rotation_bake_screen.dart';
 import 'war_servant_test_screen.dart';
 import 'pong_test_screen.dart';
+import 'marker_calibration_screen.dart';
 
 final List<AppPage> appPages = [
   AppPage(
@@ -46,6 +48,11 @@ final List<AppPage> appPages = [
     title: 'War Servant Test',
     icon: Icons.play_arrow,
     builder: (_) => const WarServantTestScreen(),
+  ),
+  AppPage(
+    title: 'Marker Calibration',
+    icon: Icons.adjust,
+    builder: (_) => MarkerCalibrationScreen(),
   ),
   AppPage(
     title: 'Pong Test',
