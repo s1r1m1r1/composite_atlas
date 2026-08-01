@@ -180,12 +180,33 @@ void main() {
         final pos = atlas.computeEffectPosition(
           marker,
           effectSprite,
-          alignCenter: true,
+          anchor: MarkerAnchor.center,
         );
 
         // marker packed center = (93+6.5, 211+6.5) = (99.5, 217.5)
         // effect originalSize/2 = (7.5, 10.5)
         // pos = (99.5-7.5, 217.5-10.5) = (92, 207)
+        expect(pos.x, 92.0);
+        expect(pos.y, 207.0);
+      });
+
+      test('deprecated alignCenter still works as center', () {
+        final effectSprite = _makeSprite(
+          offsetX: 3,
+          offsetY: 4,
+          originalWidth: 15,
+          originalHeight: 21,
+          width: 9,
+          height: 9,
+        );
+
+        // ignore: deprecated_member_use_from_same_package
+        final pos = atlas.computeEffectPosition(
+          marker,
+          effectSprite,
+          alignCenter: true,
+        );
+
         expect(pos.x, 92.0);
         expect(pos.y, 207.0);
       });
@@ -214,6 +235,128 @@ void main() {
         // Same originalSize → same position regardless of internal offset
         expect(pos1.x, pos2.x);
         expect(pos1.y, pos2.y);
+      });
+
+      group('all MarkerAnchor positions', () {
+        // marker.flameOffset = (93, 211), packedSize = (13, 13)
+        // effect originalSize = (15, 21)
+        //
+        // General formula:
+        //   markerAnchor = flameOffset + packedSize * (fx, fy)
+        //   effectAnchor = originalSize * (fx, fy)
+        //   pos = markerAnchor - effectAnchor
+
+        late TexturePackerSprite effectSprite;
+
+        setUp(() {
+          effectSprite = _makeSprite(
+            offsetX: 3,
+            offsetY: 4,
+            originalWidth: 15,
+            originalHeight: 21,
+            width: 9,
+            height: 9,
+          );
+        });
+
+        test('topLeft (0,0)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.topLeft,
+          );
+          // (93 + 13*0 - 15*0, 211 + 13*0 - 21*0) = (93, 211)
+          expect(pos.x, 93.0);
+          expect(pos.y, 211.0);
+        });
+
+        test('topCenter (0.5,0)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.topCenter,
+          );
+          // (93 + 13*0.5 - 15*0.5, 211 + 13*0 - 21*0) = (93+6.5-7.5, 211)
+          expect(pos.x, 92.0);
+          expect(pos.y, 211.0);
+        });
+
+        test('topRight (1,0)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.topRight,
+          );
+          // (93 + 13*1 - 15*1, 211 + 13*0 - 21*0) = (93+13-15, 211)
+          expect(pos.x, 91.0);
+          expect(pos.y, 211.0);
+        });
+
+        test('centerLeft (0,0.5)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.centerLeft,
+          );
+          // (93 + 13*0 - 15*0, 211 + 13*0.5 - 21*0.5) = (93, 211+6.5-10.5)
+          expect(pos.x, 93.0);
+          expect(pos.y, 207.0);
+        });
+
+        test('center (0.5,0.5)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.center,
+          );
+          // (93+6.5-7.5, 211+6.5-10.5) = (92, 207)
+          expect(pos.x, 92.0);
+          expect(pos.y, 207.0);
+        });
+
+        test('centerRight (1,0.5)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.centerRight,
+          );
+          // (93+13-15, 211+6.5-10.5) = (91, 207)
+          expect(pos.x, 91.0);
+          expect(pos.y, 207.0);
+        });
+
+        test('bottomLeft (0,1)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.bottomLeft,
+          );
+          // (93+0-0, 211+13-21) = (93, 203)
+          expect(pos.x, 93.0);
+          expect(pos.y, 203.0);
+        });
+
+        test('bottomCenter (0.5,1)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.bottomCenter,
+          );
+          // (93+6.5-7.5, 211+13-21) = (92, 203)
+          expect(pos.x, 92.0);
+          expect(pos.y, 203.0);
+        });
+
+        test('bottomRight (1,1)', () {
+          final pos = atlas.computeEffectPosition(
+            marker,
+            effectSprite,
+            anchor: MarkerAnchor.bottomRight,
+          );
+          // (93+13-15, 211+13-21) = (91, 203)
+          expect(pos.x, 91.0);
+          expect(pos.y, 203.0);
+        });
       });
     });
 

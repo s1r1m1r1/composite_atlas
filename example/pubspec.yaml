@@ -66,6 +66,7 @@ flutter:
     - assets/images/
     - assets/images/animations/
     - assets/images/pong/
+    - assets/images/marker_test/export/
 
   shaders:
     - assets/shaders/grayscale.frag

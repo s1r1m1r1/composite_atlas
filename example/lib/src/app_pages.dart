@@ -12,6 +12,7 @@ import 'atlas_rotation_bake_screen.dart';
 import 'war_servant_test_screen.dart';
 import 'pong_test_screen.dart';
 import 'marker_calibration_screen.dart';
+import 'marker_anchor_test_screen.dart';
 
 final List<AppPage> appPages = [
   AppPage(
@@ -53,6 +54,11 @@ final List<AppPage> appPages = [
     title: 'Marker Calibration',
     icon: Icons.adjust,
     builder: (_) => MarkerCalibrationScreen(),
+  ),
+  AppPage(
+    title: 'Marker Anchor Test',
+    icon: Icons.grid_on,
+    builder: (_) => const MarkerAnchorTestScreen(),
   ),
   AppPage(
     title: 'Pong Test',

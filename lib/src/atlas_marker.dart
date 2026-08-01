@@ -1,6 +1,57 @@
 import 'package:flame/components.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 
+/// Defines the anchor point for positioning an effect relative to a marker.
+///
+/// Each value corresponds to a fractional position within both the marker's
+/// packed content and the effect's original frame:
+///
+/// ```
+///  topLeft      topCenter      topRight
+///  centerLeft     center      centerRight
+///  bottomLeft  bottomCenter   bottomRight
+/// ```
+///
+/// The effect is positioned so that the chosen anchor fraction on the
+/// marker's packed content aligns with the same fraction on the effect's
+/// original frame.
+enum MarkerAnchor {
+  /// Top-left corner: effect's top-left at marker's packed top-left.
+  topLeft(0.0, 0.0),
+
+  /// Top-center: effect's top-center at marker's packed top-center.
+  topCenter(0.5, 0.0),
+
+  /// Top-right: effect's top-right at marker's packed top-right.
+  topRight(1.0, 0.0),
+
+  /// Center-left: effect's center-left at marker's packed center-left.
+  centerLeft(0.0, 0.5),
+
+  /// Center: effect's center at marker's packed center.
+  center(0.5, 0.5),
+
+  /// Center-right: effect's center-right at marker's packed center-right.
+  centerRight(1.0, 0.5),
+
+  /// Bottom-left: effect's bottom-left at marker's packed bottom-left.
+  bottomLeft(0.0, 1.0),
+
+  /// Bottom-center: effect's bottom-center at marker's packed bottom-center.
+  bottomCenter(0.5, 1.0),
+
+  /// Bottom-right: effect's bottom-right at marker's packed bottom-right.
+  bottomRight(1.0, 1.0);
+
+  /// The horizontal fraction (0.0 = left, 0.5 = center, 1.0 = right).
+  final double fractionX;
+
+  /// The vertical fraction (0.0 = top, 0.5 = center, 1.0 = bottom).
+  final double fractionY;
+
+  const MarkerAnchor(this.fractionX, this.fractionY);
+}
+
 /// Represents a marker (anchor/attach-point) sprite within an atlas.
 ///
 /// Markers are special sprites that encode positional metadata in their
@@ -135,52 +186,56 @@ extension AtlasMarkerExtension on TexturePackerAtlas {
     return null;
   }
 
-  /// Computes the effect position for a given marker and effect sprite,
-  /// using either topLeft or center alignment.
+  /// Computes the effect component position for a given marker and effect
+  /// sprite, using the specified [anchor] alignment.
   ///
   /// Uses [AtlasMarker.flameOffset] and [flameSpriteOffset] to convert
   /// GDX Y-up offsets to Flame Y-down coordinates.
   ///
-  /// [marker] — the anchor point marker.
-  /// [effectSprite] — the effect sprite to position.
-  /// [alignCenter] — if true, centers the effect's packed pixels on the
-  ///   marker's packed pixels. If false, uses topLeft alignment.
-  /// Computes the effect component position relative to the reference origin.
-  ///
-  /// Accounts for the effect sprite's internal offset (whitespace within
-  /// the original frame). Uses [originalSize] for center/topLeft calculation,
-  /// not just the packed content size.
-  ///
-  /// **topLeft**: the effect's original frame top-left aligns with the
-  ///   marker's packed content top-left.
-  /// **center**: the effect's original frame center aligns with the
-  ///   marker's packed content center.
+  /// The effect is positioned so that the chosen [anchor] fraction on the
+  /// marker's packed content aligns with the same fraction on the effect's
+  /// original frame.
   ///
   /// Returns the COMPONENT position (not the packed pixel position).
   /// [TexturePackerSprite.render()] will handle the internal offset
   /// when rendering within the component bounds.
+  ///
+  /// [marker] — the anchor point marker.
+  /// [effectSprite] — the effect sprite to position.
+  /// [anchor] — which anchor point to use (default: [MarkerAnchor.topLeft]).
+  /// [alignCenter] — **Deprecated**: use [anchor] instead.
+  ///   If true, equivalent to [MarkerAnchor.center].
   Vector2 computeEffectPosition(
     AtlasMarker marker,
     TexturePackerSprite effectSprite, {
-    bool alignCenter = false,
+    MarkerAnchor anchor = MarkerAnchor.topLeft,
+    @Deprecated('Use anchor parameter instead') bool alignCenter = false,
   }) {
+    // Resolve deprecated parameter
+    final effectiveAnchor = alignCenter ? MarkerAnchor.center : anchor;
+
     final effectOriginalSize = Vector2(
       effectSprite.region.originalWidth,
       effectSprite.region.originalHeight,
     );
     final markerFlamePos = marker.flameOffset;
 
-    if (alignCenter) {
-      // Center of marker packed content
-      final markerCenter = markerFlamePos + marker.packedSize * 0.5;
-      // Place effect original frame center at marker packed center
-      return Vector2(
-        markerCenter.x - effectOriginalSize.x * 0.5,
-        markerCenter.y - effectOriginalSize.y * 0.5,
-      );
-    } else {
-      // topLeft: place effect original frame top-left at marker packed top-left
-      return markerFlamePos.clone();
-    }
+    // Anchor point on the marker's packed content
+    final markerAnchorPoint = Vector2(
+      markerFlamePos.x + marker.packedSize.x * effectiveAnchor.fractionX,
+      markerFlamePos.y + marker.packedSize.y * effectiveAnchor.fractionY,
+    );
+
+    // Corresponding anchor point on the effect's original frame
+    final effectAnchorPoint = Vector2(
+      effectOriginalSize.x * effectiveAnchor.fractionX,
+      effectOriginalSize.y * effectiveAnchor.fractionY,
+    );
+
+    // Position the effect so both anchor points coincide
+    return Vector2(
+      markerAnchorPoint.x - effectAnchorPoint.x,
+      markerAnchorPoint.y - effectAnchorPoint.y,
+    );
   }
 }
