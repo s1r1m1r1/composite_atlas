@@ -145,29 +145,42 @@ extension AtlasMarkerExtension on TexturePackerAtlas {
   /// [effectSprite] — the effect sprite to position.
   /// [alignCenter] — if true, centers the effect's packed pixels on the
   ///   marker's packed pixels. If false, uses topLeft alignment.
+  /// Computes the effect component position relative to the reference origin.
+  ///
+  /// Accounts for the effect sprite's internal offset (whitespace within
+  /// the original frame). Uses [originalSize] for center/topLeft calculation,
+  /// not just the packed content size.
+  ///
+  /// **topLeft**: the effect's original frame top-left aligns with the
+  ///   marker's packed content top-left.
+  /// **center**: the effect's original frame center aligns with the
+  ///   marker's packed content center.
+  ///
+  /// Returns the COMPONENT position (not the packed pixel position).
+  /// [TexturePackerSprite.render()] will handle the internal offset
+  /// when rendering within the component bounds.
   Vector2 computeEffectPosition(
     AtlasMarker marker,
     TexturePackerSprite effectSprite, {
     bool alignCenter = false,
   }) {
-    final effectFlame = AtlasMarker.flameSpriteOffset(effectSprite);
-    final effectPacked = Vector2(
-      effectSprite.region.width.toDouble(),
-      effectSprite.region.height.toDouble(),
+    final effectOriginalSize = Vector2(
+      effectSprite.region.originalWidth,
+      effectSprite.region.originalHeight,
     );
+    final markerFlamePos = marker.flameOffset;
 
     if (alignCenter) {
-      final markerCenter = marker.flameOffset + marker.packedSize * 0.5;
-      final effectCenter = effectFlame + effectPacked * 0.5;
+      // Center of marker packed content
+      final markerCenter = markerFlamePos + marker.packedSize * 0.5;
+      // Place effect original frame center at marker packed center
       return Vector2(
-        markerCenter.x - effectCenter.x,
-        markerCenter.y - effectCenter.y,
+        markerCenter.x - effectOriginalSize.x * 0.5,
+        markerCenter.y - effectOriginalSize.y * 0.5,
       );
     } else {
-      return Vector2(
-        marker.flameOffset.x - effectFlame.x,
-        marker.flameOffset.y - effectFlame.y,
-      );
+      // topLeft: place effect original frame top-left at marker packed top-left
+      return markerFlamePos.clone();
     }
   }
 }

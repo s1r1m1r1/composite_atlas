@@ -277,10 +277,10 @@ class _MarkerCalibrationGame extends FlameGame with PanDetector {
     }
 
     // ── Marker sprite ──
-    // TexturePackerSprite.render() uses raw GDX offsetY internally.
-    // GDX offsetY is from BOTTOM (Y-up), but Flame is Y-down from top.
-    // To place packed pixels at the correct Flame position (flameOffset),
-    // offset the SpriteComponent: componentPos = targetPos - rawOffset.
+    // The SpriteComponent is at _refOrigin (top-left of reference frame).
+    // TexturePackerSprite.render() handles the internal offset automatically,
+    // placing packed pixels at the correct position within the frame.
+    // markerFlamePos is the Flame Y-down position of the packed content.
     final markerFlamePos = _refOrigin + marker.flameOffset;
     _markerComponent =
         SpriteComponent(
@@ -320,10 +320,12 @@ class _MarkerCalibrationGame extends FlameGame with PanDetector {
 
     // ── Effect sprite ──
     // Sized to the effect's own originalSize (e.g. 15×21).
-    // Positioned using the same compensation: componentPos = targetPos - rawOffset.
+    // Positioned at markerFlamePos — the full original frame's top-left
+    // is at the marker position. TexturePackerSprite.render() handles
+    // the internal offset (whitespace) when rendering packed pixels.
     _effectComponent = SpriteComponent(
       sprite: effectFrames.first,
-      position: markerFlamePos - effectFrames.first.offset,
+      position: markerFlamePos.clone(),
       size: effectFrames.first.originalSize,
     );
     world.add(_effectComponent);
@@ -356,40 +358,35 @@ class _MarkerCalibrationGame extends FlameGame with PanDetector {
   }
 
   /// Positions the effect sprite relative to the marker.
-  /// Uses Flame Y-down coordinates via [AtlasMarker.flameOffset] and
-  /// [AtlasMarker.flameSpriteOffset] to convert GDX offsetY.
   ///
-  /// TexturePackerSprite.render() applies raw GDX offset internally,
-  /// so we compensate: componentPos = targetFlamePos - rawOffset.
+  /// Uses [AtlasMarker.computeEffectPosition] which accounts for the
+  /// effect sprite's internal offset (whitespace in the original frame).
+  /// The component position is for the full original frame —
+  /// [TexturePackerSprite.render()] handles the internal offset when
+  /// rendering packed pixels within the component bounds.
   void _updateEffectPosition() {
     if (effectFrames.isEmpty) return;
 
     final effectSprite = effectFrames[_currentFrame];
-    final effectFlameOffset = AtlasMarker.flameSpriteOffset(effectSprite);
-    final effectPacked = Vector2(
-      effectSprite.region.width.toDouble(),
-      effectSprite.region.height.toDouble(),
-    );
-    final markerFlamePos = _refOrigin + marker.flameOffset;
+    final effectOriginalSize = effectSprite.originalSize;
+    final markerFlamePos = marker.flameOffset;
 
     if (alignCenter) {
-      final markerCenter = marker.flameOffset + marker.packedSize * 0.5;
-      final flashCenter = effectFlameOffset + effectPacked * 0.5;
-      final targetPos =
+      // Center of marker packed content
+      final markerCenter = markerFlamePos + marker.packedSize * 0.5;
+      // Place effect original frame center at marker packed center
+      _effectComponent.position =
           _refOrigin +
           Vector2(
-            markerCenter.x - flashCenter.x,
-            markerCenter.y - flashCenter.y,
+            markerCenter.x - effectOriginalSize.x * 0.5,
+            markerCenter.y - effectOriginalSize.y * 0.5,
           );
-      // Compensate for TexturePackerSprite internal raw offset
-      _effectComponent.position = targetPos - effectSprite.offset;
     } else {
-      // topLeft: packed pixels should be at markerFlamePos
-      // TexturePackerSprite adds raw offset internally, so compensate
-      _effectComponent.position = markerFlamePos - effectSprite.offset;
+      // topLeft: place effect original frame top-left at marker packed top-left
+      _effectComponent.position = _refOrigin + markerFlamePos.clone();
     }
 
-    _effectComponent.size = effectSprite.originalSize;
+    _effectComponent.size = effectOriginalSize;
   }
 }
 
@@ -465,20 +462,18 @@ class _EffectFrameInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = sprite.region;
-    final effectFlame = AtlasMarker.flameSpriteOffset(sprite);
-    final effectPacked = Vector2(r.width.toDouble(), r.height.toDouble());
+    final effectOriginalSize = Vector2(r.originalWidth, r.originalHeight);
+    final markerFlamePos = marker.flameOffset;
 
     double computedX, computedY;
     if (alignCenter) {
-      final mcx = marker.flameOffset.x + marker.packedSize.x * 0.5;
-      final mcy = marker.flameOffset.y + marker.packedSize.y * 0.5;
-      final ecx = effectFlame.x + effectPacked.x * 0.5;
-      final ecy = effectFlame.y + effectPacked.y * 0.5;
-      computedX = mcx - ecx;
-      computedY = mcy - ecy;
+      final markerCenter = markerFlamePos + marker.packedSize * 0.5;
+      computedX = markerCenter.x - effectOriginalSize.x * 0.5;
+      computedY = markerCenter.y - effectOriginalSize.y * 0.5;
     } else {
-      computedX = marker.flameOffset.x - effectFlame.x;
-      computedY = marker.flameOffset.y - effectFlame.y;
+      // topLeft: effect original frame top-left at marker packed top-left
+      computedX = markerFlamePos.x;
+      computedY = markerFlamePos.y;
     }
 
     return Container(

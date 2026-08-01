@@ -1,5 +1,4 @@
 import 'dart:ui' as ui;
-import 'package:basisu_codec/basisu_codec.dart';
 import 'package:flame/sprite.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
 import 'bake_request.dart';
@@ -38,16 +37,12 @@ abstract class CompositeAtlas extends TexturePackerAtlas {
     bool allowRotation = true,
     bool forceSquare = false,
     bool trim = true,
-    CompressFormat? compressFormat,
-    int compressQuality = 50,
   }) => CompositeAtlasImpl.bake(
     requests,
     maxAtlasWidth: maxAtlasWidth,
     allowRotation: allowRotation,
     forceSquare: forceSquare,
     trim: trim,
-    compressFormat: compressFormat,
-    compressQuality: compressQuality,
   );
 
   /// Creates a simple wrapper for a regular [TexturePackerAtlas] without baking.

@@ -264,13 +264,7 @@ class _PongTestScreenState extends State<PongTestScreen> {
                     ),
                   ),
                   // Animation display
-                  Center(
-                    child: SizedBox(
-                      width: 400,
-                      height: 400,
-                      child: _buildSpriteView(),
-                    ),
-                  ),
+                  SizedBox(width: 800, height: 800, child: _buildSpriteView()),
                   // Frame controls
                   Padding(
                     padding: const EdgeInsets.all(8.0),
