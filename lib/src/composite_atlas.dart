@@ -4,15 +4,6 @@ import 'package:flame_texturepacker/flame_texturepacker.dart';
 import 'bake_request.dart';
 import 'composite_atlas_impl.dart';
 
-/// Packing algorithm mode for [CompositeAtlas.bake].
-///
-/// - [fast] — Guillotine bin-packing with shortest-side-first heuristic.
-///   O(n log n) speed, ideal for **runtime** atlas baking.
-///
-/// - [optimal] — MaxRects with best-area-fit + merge heuristics.
-///   Slower but produces denser packing, ideal for **pre-build/dev** workflows.
-enum AtlasPackMode { fast, optimal }
-
 /// A runtime-composed texture atlas that merges multiple [BakeRequest]
 /// sources into a single [ui.Image] to minimize draw calls.
 ///
@@ -40,25 +31,18 @@ abstract class CompositeAtlas extends TexturePackerAtlas {
 
   String generateGDXAtlasContent(String imageName);
 
-  /// Bakes multiple [BakeRequest] instances into a single [CompositeAtlas].
-  ///
-  /// [packMode] controls the packing algorithm:
-  /// - [AtlasPackMode.fast] — Guillotine, O(n log n), good for runtime
-  /// - [AtlasPackMode.optimal] — MaxRects with merge, slower but denser
   static Future<CompositeAtlas> bake(
     List<BakeRequest> requests, {
     double maxAtlasWidth = 1024.0,
     bool allowRotation = true,
     bool forceSquare = false,
     bool trim = true,
-    AtlasPackMode packMode = AtlasPackMode.fast,
   }) => CompositeAtlasImpl.bake(
     requests,
     maxAtlasWidth: maxAtlasWidth,
     allowRotation: allowRotation,
     forceSquare: forceSquare,
     trim: trim,
-    packMode: packMode,
   );
 
   /// Creates a simple wrapper for a regular [TexturePackerAtlas] without baking.

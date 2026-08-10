@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:flame/cache.dart';
 import 'package:flame/components.dart';
 import 'package:flame_texturepacker/flame_texturepacker.dart';
-import 'package:meta/meta.dart';
 
 import 'composite_atlas.dart';
 import 'internal_models.dart';
@@ -20,12 +19,27 @@ class CompositeAtlasImpl extends CompositeAtlas {
   final ui.Image image;
   final Map<String, TexturePackerSprite> _internalSpriteMap;
   final Set<String> _prefixes;
+  final Map<String, List<TexturePackerSprite>> _indexedSprites = {};
 
   /// External access for tests
   Map<String, TexturePackerSprite> get spriteMap => _internalSpriteMap;
 
   CompositeAtlasImpl._(this.image, this._internalSpriteMap, this._prefixes)
-    : super(_internalSpriteMap.values.toSet().toList());
+    : super(_internalSpriteMap.values.toSet().toList()) {
+    _indexSprites();
+  }
+
+  void _indexSprites() {
+    // Group sprites by their base name (e.g. "ptero_anim" for "ptero_anim#0")
+    for (final sprite in sprites.cast<TexturePackerSprite>()) {
+      final name = sprite.region.name;
+      _indexedSprites.putIfAbsent(name, () => []).add(sprite);
+    }
+    // Sort each group by region index to ensure correct animation order
+    for (final list in _indexedSprites.values) {
+      list.sort((a, b) => a.region.index.compareTo(b.region.index));
+    }
+  }
 
   static CompositeAtlas fromAtlas(TexturePackerAtlas atlas) {
     final spriteMap = <String, TexturePackerSprite>{};
@@ -49,7 +63,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
     bool allowRotation = true,
     bool forceSquare = false,
     bool trim = true,
-    AtlasPackMode packMode = AtlasPackMode.fast,
     Images? images,
   }) async {
     final Map<RegionFilterKey, List<PendingBake>> groupedTasks = {};
@@ -59,17 +72,37 @@ class CompositeAtlasImpl extends CompositeAtlas {
     // 1. Pre-calculate animation lengths for proper indexing
     for (final request in requests) {
       if (request.keyPrefix != null) prefixes.add(request.keyPrefix!);
-      if (request is AtlasBakeRequest) {
-        for (final sprite in request.atlas.sprites) {
-          var name = sprite.region.name;
-          if (sprite.region.index == -1) {
-            final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
-            if (match != null) {
-              name = match.group(1)!;
+      switch (request) {
+        case AtlasBakeRequest():
+          for (final sprite in request.atlas.sprites) {
+            var name = sprite.region.name;
+            if (sprite.region.index == -1) {
+              final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
+              if (match != null) {
+                name = match.group(1)!;
+              }
             }
+            animationLengths[name] = (animationLengths[name] ?? 0) + 1;
           }
-          animationLengths[name] = (animationLengths[name] ?? 0) + 1;
-        }
+
+        case SpritesheetBakeRequest(:final frames):
+          if (frames != null) {
+            for (final frame in frames) {
+              var name = frame.name;
+              final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
+              if (match != null) {
+                name = match.group(1)!;
+              }
+              animationLengths[name] = (animationLengths[name] ?? 0) + 1;
+            }
+          } else {
+            animationLengths[request.name] =
+                (animationLengths[request.name] ?? 0) +
+                (request.frameCount ?? 1);
+          }
+        case SpriteBakeRequest():
+        case ImageBakeRequest():
+          break;
       }
     }
 
@@ -242,6 +275,90 @@ class CompositeAtlasImpl extends CompositeAtlas {
           );
 
           groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
+        case SpritesheetBakeRequest():
+          final List<SpritesheetFrame> frames = [];
+          if (request.frames != null) {
+            frames.addAll(request.frames!);
+          } else {
+            final fw = request.frameWidth!;
+            final fh = request.frameHeight!;
+            final cols = (request.image.width / fw).floor();
+            final count =
+                request.frameCount ??
+                (cols * (request.image.height / fh).floor());
+
+            for (int i = 0; i < count; i++) {
+              final x = (i % cols) * fw;
+              final y = (i / cols).floor() * fh;
+              frames.add(
+                SpritesheetFrame(
+                  name: '${request.name}_$i',
+                  x: x.toDouble(),
+                  y: y.toDouble(),
+                  width: fw,
+                  height: fh,
+                ),
+              );
+            }
+          }
+
+          for (final frame in frames) {
+            var name = frame.name;
+            final originalName = frame.name;
+            var itemIndex = -1;
+
+            final match = RegExp(r'^(.+)_(\d+)$').firstMatch(name);
+            if (match != null) {
+              name = match.group(1)!;
+              itemIndex = int.parse(match.group(2)!);
+            }
+
+            final double ow = frame.originalWidth ?? frame.width;
+            final double oh = frame.originalHeight ?? frame.height;
+            final double ox = (ow - frame.width) / 2.0;
+            final double oy = (oh - frame.height) / 2.0;
+
+            final bakeKey = RegionFilterKey(
+              request.image,
+              ui.Rect.fromLTWH(frame.x, frame.y, frame.width, frame.height),
+              request.filter,
+              request.decorator,
+              itemIndex,
+              animationLengths[name] ?? 1,
+              ox,
+              oy,
+              ow,
+              oh,
+            );
+
+            final pending = PendingBake(
+              Sprite(
+                request.image,
+                srcPosition: Vector2(frame.x, frame.y),
+                srcSize: Vector2(frame.width, frame.height),
+              ),
+              prefix,
+              request.nameTransformer != null
+                  ? request.nameTransformer!(name)
+                  : name,
+              request.filter,
+              request.decorator,
+              itemIndex,
+              animationLengths[name] ?? 1,
+              bakeKey,
+              originalName: originalName,
+              sourceRegion: SpriteSourceRegion(
+                x: frame.x,
+                y: frame.y,
+                width: frame.width,
+                height: frame.height,
+                originalWidth: ow,
+                originalHeight: oh,
+              ),
+            );
+
+            groupedTasks.putIfAbsent(bakeKey, () => []).add(pending);
+          }
       }
     }
 
@@ -265,38 +382,28 @@ class CompositeAtlasImpl extends CompositeAtlas {
       final bool isRawSprite = template is! TexturePackerSprite;
 
       // Decide whether to run alpha analysis (trim)
-      // - If trim is enabled AND (explicit GDX region OR raw sprite), analyze
-      // - For AtlasBakeRequest (TexturePackerSprite), GDX already trimmed,
-      //   so we use the source data directly unless a decorator is present
       final bool needsAlphaAnalysis =
-          trim && (hasExplicitRegion || isRawSprite || decorator != null);
+          (trim && (hasExplicitRegion || isRawSprite)) || (decorator != null);
 
       BakeInfo info;
 
-      // GDX atlas sources: use original trimmed bounds and offsets directly.
-      // No alpha re-scanning needed — GDX already did optimal trimming.
       final isGdxSource = template is TexturePackerSprite && !hasExplicitRegion;
 
       if (isGdxSource && decorator == null) {
-        // Use GDX metadata as-is, but with visual (un-rotated) dimensions
-        // for packing. GDX stores rotated sprites with swapped w/h in src,
-        // so the visual size is src.height × src.width.
         final visualW = isRotated ? key.src.height : key.src.width;
         final visualH = isRotated ? key.src.width : key.src.height;
 
         info = BakeInfo(
-          key.src, // trimmed bounds from GDX (may be rotated)
-          key.offsetX, // original GDX offset X
-          key.offsetY, // original GDX offset Y
+          key.src,
+          key.offsetX,
+          key.offsetY,
           key.originalWidth,
           key.originalHeight,
           rotate: isRotated,
           effectiveWidth: visualW,
           effectiveHeight: visualH,
         );
-        // No bakedImage needed — we'll draw directly from the source atlas
       } else if (needsAlphaAnalysis) {
-        // Use SpriteBakeInfo.analyze to scan alpha and crop
         final bakeInfo = await SpriteBakeInfo.analyze(
           key: key,
           sprite: template,
@@ -307,15 +414,21 @@ class CompositeAtlasImpl extends CompositeAtlas {
           itemIndex: key.itemIndex,
           itemCount: key.itemCount,
           sourceRegion: pending.first.sourceRegion,
+          trim: trim,
         );
 
         final bool isSpritesheet = pending.first.sourceRegion != null;
 
         if (isSpritesheet) {
-          // For spritesheets: pack at original frame size to avoid scaling.
-          // Create a full-frame image with content positioned at the correct offset.
           final ow = bakeInfo.originalWidth;
           final oh = bakeInfo.originalHeight;
+          // bakeInfo.offsetY is now in GDX convention (from bottom, Y-up).
+          // Canvas drawing needs Y-down from top:
+          //   drawY = originalHeight - trimmedHeight - gdxOffsetY
+          final drawY =
+              bakeInfo.originalHeight -
+              bakeInfo.trimmedSrc.height -
+              bakeInfo.offsetY;
           final recorder = ui.PictureRecorder();
           final canvas = ui.Canvas(recorder);
           canvas.drawImageRect(
@@ -323,7 +436,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
             bakeInfo.trimmedSrc,
             ui.Rect.fromLTWH(
               bakeInfo.offsetX,
-              bakeInfo.offsetY,
+              drawY,
               bakeInfo.trimmedSrc.width,
               bakeInfo.trimmedSrc.height,
             ),
@@ -336,31 +449,29 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
           info = BakeInfo(
             ui.Rect.fromLTWH(0, 0, ow, oh),
-            0, // offset is 0 since content is already positioned
+            0,
             0,
             ow,
             oh,
-            rotate: isRotated,
+            rotate: false,
             effectiveWidth: ow,
             effectiveHeight: oh,
           );
           info.bakedImage = fullFrame;
         } else {
-          // For non-spritesheets: pack at trimmed size with offsets (GDX-style)
           info = BakeInfo(
             bakeInfo.trimmedSrc,
             bakeInfo.offsetX,
             bakeInfo.offsetY,
             bakeInfo.originalWidth,
             bakeInfo.originalHeight,
-            rotate: isRotated,
+            rotate: false,
             effectiveWidth: bakeInfo.trimmedSrc.width,
             effectiveHeight: bakeInfo.trimmedSrc.height,
           );
           info.bakedImage = bakeInfo.bakedImage;
         }
       } else {
-        // Fallback: use sprite's src rect directly (no trim, no GDX metadata)
         info = BakeInfo(
           template.src,
           0,
@@ -389,33 +500,26 @@ class CompositeAtlasImpl extends CompositeAtlas {
     print('[CompositeAtlas] Unique slots to bake: ${keyToInfo.length}');
 
     // 3.5. Deduplicate sprites with identical visual content
-    // Compare actual pixel data from the source image, not just metadata.
-    // This catches duplicates even when they have different bounds/positions in the atlas.
-    Future<String> _computePixelHash(
+    Future<String> computePixelHash(
       RegionFilterKey key,
       PendingBake pending,
     ) async {
       final info = keyToInfo[key]!;
       final sw = key.src.width.toInt();
       final sh = key.src.height.toInt();
-      // final sx = key.src.left.toInt();
-      // final sy = key.src.top.toInt();
-
       final ew = (info.effectiveWidth ?? sw).toInt();
       final eh = (info.effectiveHeight ?? sh).toInt();
       final ox = info.offsetX.toInt();
       final oy = info.offsetY.toInt();
       final ow = info.originalWidth.toInt();
       final oh = info.originalHeight.toInt();
-      final rot = info.rotate ? 1 : 0;
+      final rot = (info.bakedImage != null) ? 0 : (info.rotate ? 1 : 0);
       final metaSig = '${ew}_${eh}_${ox}_${oy}_${ow}_${oh}_${rot}_${sw}_$sh';
 
-      // Pixel-level hash
       int pixelHash = 0;
       final ui.Image targetImg = info.bakedImage ?? key.image;
       final ui.Rect targetRect = info.bakedImage != null
-          ? info
-                .trimmedSrc // If it's baked, we only care about the trimmed grayscale pixels
+          ? info.trimmedSrc
           : key.src;
 
       final byteData = await targetImg.toByteData(
@@ -443,7 +547,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
       return '${metaSig}_ph${pixelHash}_img${targetImg.hashCode}';
     }
 
-    // Build a map: bakeKey → first pending for that key
     final Map<RegionFilterKey, PendingBake> keyToPending = {};
     for (final pending in spritesToBake) {
       if (!keyToPending.containsKey(pending.bakeKey)) {
@@ -451,13 +554,11 @@ class CompositeAtlasImpl extends CompositeAtlas {
       }
     }
 
-    // Compute signatures for all keys
     final Map<RegionFilterKey, String> keySigs = {};
     for (final key in keyToInfo.keys) {
-      keySigs[key] = await _computePixelHash(key, keyToPending[key]!);
+      keySigs[key] = await computePixelHash(key, keyToPending[key]!);
     }
 
-    // Group duplicates
     final Map<RegionFilterKey, RegionFilterKey> dedupMap = {};
     final Set<RegionFilterKey> masterKeys = {};
     for (final key in keyToInfo.keys) {
@@ -465,30 +566,14 @@ class CompositeAtlasImpl extends CompositeAtlas {
       final existing = masterKeys.where((m) => keySigs[m] == sig).firstOrNull;
       if (existing != null) {
         dedupMap[key] = existing;
-        // ignore: avoid_print
-        print(
-          '[CompositeAtlas] Dedup: ${sig.substring(0, sig.indexOf('_img'))} → master',
-        );
       } else {
         masterKeys.add(key);
       }
     }
 
-    if (dedupMap.isNotEmpty) {
-      // ignore: avoid_print
-      print(
-        '[CompositeAtlas] Dedup: ${dedupMap.length} duplicate(s) will reuse master slots',
-      );
-    }
-    // ignore: avoid_print
-    print(
-      '[CompositeAtlas] After dedup: ${masterKeys.length} master slots (from ${keyToInfo.length})',
-    );
-
     // 4. Sort sprites for better packing density
     final List<RegionFilterKey> sortedKeys = masterKeys.toList();
     if (allowRotation) {
-      // For rotation: sort by shortest side (descending) — better for mixed sizes
       sortedKeys.sort((a, b) {
         final infoA = keyToInfo[a]!;
         final infoB = keyToInfo[b]!;
@@ -503,8 +588,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
         return shortB.compareTo(shortA);
       });
     } else {
-      // Without rotation: sort by height (descending) — shelf packing
-      // Taller sprites go first, shorter ones fill horizontal gaps above
       sortedKeys.sort((a, b) {
         final infoA = keyToInfo[a]!;
         final infoB = keyToInfo[b]!;
@@ -516,7 +599,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
     const double padding = 2.0;
 
-    // Calculate initial atlas size
     double maxSpriteDim = 64.0;
     double totalArea = 0;
     for (final key in sortedKeys) {
@@ -527,19 +609,12 @@ class CompositeAtlasImpl extends CompositeAtlas {
       totalArea += w * h;
     }
 
-    // Start with power-of-two based on total area, not just max sprite
-    // This avoids constant growToFit calls that waste space between rows
     final double areaSide = math.sqrt(totalArea);
     double initialSide = math.max(maxSpriteDim, areaSide);
     initialSide = _nextPow2(initialSide.ceil()).toDouble();
     initialSide = math.max(initialSide, 64.0);
 
-    AtlasPacker packer;
-    if (packMode == AtlasPackMode.optimal) {
-      packer = MaxRectsPacker(initialSide);
-    } else {
-      packer = GuillotinePacker(initialSide);
-    }
+    AtlasPacker packer = GuillotinePacker(initialSide);
 
     // 5. Pack all sprites
     final Map<RegionFilterKey, ui.Offset> drawingPositions = {};
@@ -555,22 +630,14 @@ class CompositeAtlasImpl extends CompositeAtlas {
       while (result == null && growAttempts < 20) {
         packer.growToFit(w, h, allowRotation: allowRotation);
         if (packer is GuillotinePacker) packer.mergeFreeRects();
-        if (packer is MaxRectsPacker) packer.mergeFreeRects();
         result = packer.pack(w, h, allowRotation: allowRotation);
         growAttempts++;
       }
 
-      if (result == null) {
-        // ignore: avoid_print
-        print(
-          '[CompositeAtlas] WARNING: Failed to pack "${key.src.width.toInt()}x${key.src.height.toInt()}" '
-          '(tried $growAttempts grows, atlas exceeded)',
-        );
-        continue;
+      if (result != null) {
+        drawingPositions[key] = result.offset;
+        info.rotate = result.rotated;
       }
-
-      drawingPositions[key] = result.offset;
-      info.rotate = result.rotated;
     }
 
     // 6. Calculate actual bounds and round up to power-of-two
@@ -578,6 +645,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
     double actualMaxX = 0;
     for (final key in sortedKeys) {
       final pos = drawingPositions[key]!;
+      if (pos == null) continue;
       final info = keyToInfo[key]!;
       final visualW = info.effectiveWidth ?? info.trimmedSrc.width;
       final visualH = info.effectiveHeight ?? info.trimmedSrc.height;
@@ -588,25 +656,17 @@ class CompositeAtlasImpl extends CompositeAtlas {
       actualMaxX = math.max(actualMaxX, pos.dx + sheetW + padding);
     }
 
-    // Round up to power-of-two (64, 128, 256, 512, 1024, 2048)
     final texWidth = _nextPow2(actualMaxX.ceil());
     final texHeight = _nextPow2(actualMaxY.ceil());
-
-    // ignore: avoid_print
-    print(
-      '[CompositeAtlas] Final size: ${texWidth}x$texHeight '
-      '(used: ${actualMaxX.toInt()}x${actualMaxY.toInt()}, '
-      '${(totalArea / (texWidth * texHeight) * 100).toStringAsFixed(1)}% fill)',
-    );
 
     // 6. Render the final atlas
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
     final basePaint = ui.Paint()..filterQuality = ui.FilterQuality.none;
 
-    // Only render master slots — duplicates will reference the same pixels
     for (final key in masterKeys) {
-      final pos = drawingPositions[key]!;
+      final pos = drawingPositions[key];
+      if (pos == null) continue;
       final info = keyToInfo[key]!;
 
       canvas.save();
@@ -623,19 +683,9 @@ class CompositeAtlasImpl extends CompositeAtlas {
       final dst = ui.Rect.fromLTWH(0, 0, visualW, visualH);
 
       if (info.bakedImage != null) {
-        canvas.drawImageRect(
-          info.bakedImage!,
-          info.trimmedSrc, // Fix: only draw the trimmed/processed portion of the baked image
-          dst,
-          basePaint,
-        );
+        canvas.drawImageRect(info.bakedImage!, info.trimmedSrc, dst, basePaint);
       } else {
-        // GDX source: draw directly from the source atlas.
-        // If the sprite is rotated in the source GDX atlas, un-rotate it
-        // into a temp buffer first so the new atlas stores it upright.
         if (key.rotate) {
-          // Source is rotated in GDX — un-rotate to get visual pixels.
-          // This produces a buffer of the correct visual dimensions.
           final unrotW = key.src.height;
           final unrotH = key.src.width;
           final unrotRecorder = ui.PictureRecorder();
@@ -653,8 +703,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
             unrotH.ceil(),
           );
 
-          // Draw at the visual size (un-rotated dimensions).
-          // The canvas transform (info.rotate) will handle atlas-level rotation.
           canvas.drawImageRect(
             unrotated,
             ui.Rect.fromLTWH(0, 0, unrotW, unrotH),
@@ -678,7 +726,7 @@ class CompositeAtlasImpl extends CompositeAtlas {
       info.bakedImage?.dispose();
     }
 
-    // 7. Build sprite map with GDX-compatible metadata
+    // 6. Build sprite map with GDX-compatible metadata
     final spriteMap = <String, TexturePackerSprite>{};
     final megaPage = Page()
       ..texture = megaImage
@@ -686,7 +734,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
       ..height = megaImage.height;
 
     for (final pending in spritesToBake) {
-      // Resolve deduplication: use master key's position if this is a duplicate
       final effectiveKey = dedupMap[pending.bakeKey] ?? pending.bakeKey;
       final pos = drawingPositions[effectiveKey]!;
       final bakeInfo = keyToInfo[effectiveKey]!;
@@ -702,19 +749,11 @@ class CompositeAtlasImpl extends CompositeAtlas {
         offsetY: bakeInfo.offsetY,
         originalWidth: bakeInfo.originalWidth,
         originalHeight: bakeInfo.originalHeight,
+        index: pending.itemIndex ?? -1,
         rotate: bakeInfo.rotate,
-        index:
-            (pending.itemCount == 1 &&
-                (pending.itemIndex == null || pending.itemIndex == -1) &&
-                (pending.sprite is! TexturePackerSprite ||
-                    (pending.sprite as TexturePackerSprite).region.index == -1))
-            ? -1
-            : (pending.itemIndex ?? -1),
       );
 
       final newSprite = TexturePackerSprite(newRegion);
-      newSprite.srcSize = newSprite.originalSize;
-
       final primaryKey = newRegion.index == -1
           ? newRegion.name
           : '${newRegion.name}#${newRegion.index}';
@@ -738,7 +777,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
   TexturePackerSprite? findSpriteByName(String name) {
     if (_internalSpriteMap.containsKey(name)) return _internalSpriteMap[name];
 
-    // 1. Try prefix-unaware lookup
     for (final prefix in _prefixes) {
       final combined = '$prefix$name';
       if (_internalSpriteMap.containsKey(combined)) {
@@ -746,8 +784,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
       }
     }
 
-    // 2. Handle indexed fallback for singular lookup
-    // If we asked for 'lake', it might be stored as 'lake#0'
     final lookupNames = <String>{name, ..._prefixes.map((p) => '$p$name')};
     for (final lookup in lookupNames) {
       final indexedKey = '$lookup#0';
@@ -761,51 +797,34 @@ class CompositeAtlasImpl extends CompositeAtlas {
 
   @override
   List<TexturePackerSprite> findSpritesByName(String name) {
-    // 1. Try exact/super lookup (efficient)
-    final results = super.findSpritesByName(name);
-    if (results.isNotEmpty) {
-      return results.cast<TexturePackerSprite>().toList();
+    // 1. Check indexed sprites directly
+    if (_indexedSprites.containsKey(name)) {
+      return _indexedSprites[name]!;
     }
 
-    // 2. Try prefix-aware lookup (one prefix at a time to prevent mixing)
+    // 2. Check with prefixes
     for (final prefix in _prefixes) {
       final combined = '$prefix$name';
-      final prefixedResults = super.findSpritesByName(combined);
-      if (prefixedResults.isNotEmpty) {
-        return prefixedResults.cast<TexturePackerSprite>().toList();
+      if (_indexedSprites.containsKey(combined)) {
+        return _indexedSprites[combined]!;
       }
     }
 
-    // 3. Fallback to manual search (legacy or indexed lookups)
-    final Set<TexturePackerSprite> found = {};
-    final lookupNames = <String>{name, ..._prefixes.map((p) => '$p$name')};
-
-    for (final lookup in lookupNames) {
-      // Check if the lookup exactly matches a key in the internal map
-      if (_internalSpriteMap.containsKey(lookup)) {
-        found.add(_internalSpriteMap[lookup]!);
+    // 3. Fallback: manual search for name#0 style keys
+    final found = <TexturePackerSprite>{};
+    for (final key in _internalSpriteMap.keys) {
+      if (key == name || key.startsWith('$name#')) {
+        found.add(_internalSpriteMap[key]!);
       }
-
-      // Check for indexed keys (e.g., name#0, name#1)
-      final indexedPattern = RegExp('^${RegExp.escape(lookup)}#(\\d+)\$');
-      for (final key in _internalSpriteMap.keys) {
-        if (indexedPattern.hasMatch(key)) {
+      for (final prefix in _prefixes) {
+        final combined = '$prefix$name';
+        if (key == combined || key.startsWith('$combined#')) {
           found.add(_internalSpriteMap[key]!);
         }
       }
-
-      // If we found something for this specific prefix/lookup, return it without mixing others
-      if (found.isNotEmpty) break;
     }
 
     final casted = found.toList();
-    if (casted.isEmpty) {
-      // ignore: avoid_print
-      print(
-        '[CompositeAtlas] Sprite animation lookup failed for: "$name" (checked ${_internalSpriteMap.length} entries)',
-      );
-    }
-
     casted.sort((a, b) => a.region.index.compareTo(b.region.index));
     return casted;
   }
@@ -817,7 +836,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
     bool loop = true,
     bool useIndexedSpritesOnly = false,
   }) {
-    // We override getAnimation to ensure we use our naturally sorted findSpritesByName
     final animationSprites = findSpritesByName(name);
     if (animationSprites.isEmpty) {
       throw Exception('No sprites found with name "$name" in atlas');
@@ -843,7 +861,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
     sb.writeln('filter:Nearest,Nearest');
     sb.writeln('repeat:none');
 
-    // Sort sprites by name then index for GDX compatibility
     final sortedSprites =
         List<TexturePackerSprite>.from(sprites.cast<TexturePackerSprite>())
           ..sort((a, b) {
@@ -867,8 +884,6 @@ class CompositeAtlasImpl extends CompositeAtlas {
     return sb.toString();
   }
 
-  /// Rounds up to the nearest power-of-two, minimum 64.
-  /// Sequence: 64, 128, 256, 512, 1024, 2048, 4096
   static int _nextPow2(int value) {
     if (value <= 64) return 64;
     int pot = 64;

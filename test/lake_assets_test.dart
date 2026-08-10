@@ -106,7 +106,7 @@ void main() {
         final index = original.region.index;
 
         // Construct the expected lookup name (CompositeAtlas uses name#index for indexing)
-        final lookupName = index != -1 ? '${spriteName}#$index' : spriteName;
+        final lookupName = index != -1 ? '$spriteName#$index' : spriteName;
 
         final bakedSprite = composite.findSpriteByName(lookupName);
         expect(
@@ -173,25 +173,44 @@ void main() {
         final originalAnim = baseAtlas.getAnimation(name);
         final bakedAnim = composite.getAnimation(name);
 
-        expect(bakedAnim.frames.length, equals(originalAnim.frames.length),
-            reason: 'Frame count mismatch for animation: $name');
+        expect(
+          bakedAnim.frames.length,
+          equals(originalAnim.frames.length),
+          reason: 'Frame count mismatch for animation: $name',
+        );
 
         for (var i = 0; i < originalAnim.frames.length; i++) {
-          final originalSprite = originalAnim.frames[i].sprite as TexturePackerSprite;
+          final originalSprite =
+              originalAnim.frames[i].sprite as TexturePackerSprite;
           final bakedSprite = bakedAnim.frames[i].sprite as TexturePackerSprite;
 
-          expect(bakedSprite.region.name, equals(name),
-              reason: 'Frame $i name mismatch for animation: $name');
+          expect(
+            bakedSprite.region.name,
+            equals(name),
+            reason: 'Frame $i name mismatch for animation: $name',
+          );
 
           // Verify metadata preservation within the animation context
-          expect(bakedSprite.region.offsetX, equals(originalSprite.region.offsetX),
-              reason: 'Frame $i offsetX mismatch for animation: $name');
-          expect(bakedSprite.region.offsetY, equals(originalSprite.region.offsetY),
-              reason: 'Frame $i offsetY mismatch for animation: $name');
-          expect(bakedSprite.region.originalWidth, equals(originalSprite.region.originalWidth),
-              reason: 'Frame $i originalWidth mismatch for animation: $name');
-          expect(bakedSprite.region.originalHeight, equals(originalSprite.region.originalHeight),
-              reason: 'Frame $i originalHeight mismatch for animation: $name');
+          expect(
+            bakedSprite.region.offsetX,
+            equals(originalSprite.region.offsetX),
+            reason: 'Frame $i offsetX mismatch for animation: $name',
+          );
+          expect(
+            bakedSprite.region.offsetY,
+            equals(originalSprite.region.offsetY),
+            reason: 'Frame $i offsetY mismatch for animation: $name',
+          );
+          expect(
+            bakedSprite.region.originalWidth,
+            equals(originalSprite.region.originalWidth),
+            reason: 'Frame $i originalWidth mismatch for animation: $name',
+          );
+          expect(
+            bakedSprite.region.originalHeight,
+            equals(originalSprite.region.originalHeight),
+            reason: 'Frame $i originalHeight mismatch for animation: $name',
+          );
         }
       }
     });

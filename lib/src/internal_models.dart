@@ -175,6 +175,7 @@ class SpriteBakeInfo {
     required int? itemIndex,
     required int? itemCount,
     SpriteSourceRegion? sourceRegion,
+    bool trim = true,
   }) async {
     try {
       // Determine source rect to analyze
@@ -189,7 +190,7 @@ class SpriteBakeInfo {
       // Render the sprite into a temp buffer at its source size
       final recorder = ui.PictureRecorder();
       final canvas = ui.Canvas(recorder);
-      final paint = ui.Paint()..filterQuality = ui.FilterQuality.none;
+      final ui.Paint paint = ui.Paint()..filterQuality = ui.FilterQuality.none;
       if (filter != null) paint.colorFilter = filter;
 
       final double renderW = isRotated ? scanSrc.height : scanSrc.width;
@@ -206,7 +207,7 @@ class SpriteBakeInfo {
         c.drawImageRect(
           sprite.image,
           scanSrc,
-          ui.Rect.fromLTWH(0, 0, renderW, renderH),
+          ui.Rect.fromLTWH(0, 0, scanSrc.width, scanSrc.height),
           paint,
         );
       }
@@ -240,7 +241,7 @@ class SpriteBakeInfo {
       );
 
       // Scan alpha channel to find tight bounds
-      final trimResult = await _scanAlpha(tempImage);
+      final trimResult = trim ? await _scanAlpha(tempImage) : null;
 
       ui.Rect trimmedSrc;
       double offsetX;
@@ -249,9 +250,13 @@ class SpriteBakeInfo {
       if (trimResult != null) {
         // trimResult is relative to the tempImage (un-rotated, renderW x renderH)
         trimmedSrc = trimResult.trimRect;
-        // Final offset is the original sprite's offset PLUS the new trim offset
+        // Final offset in GDX convention:
+        //   offsetX = original left offset + additional left trim
+        //   offsetY = original bottom offset + additional bottom trim
+        // GDX offsetY is measured from the bottom (Y-up), so:
+        //   additional bottom trim = renderH - trimRect.bottom
         offsetX = key.offsetX + trimResult.trimRect.left;
-        offsetY = key.offsetY + trimResult.trimRect.top;
+        offsetY = key.offsetY + renderH - trimResult.trimRect.bottom;
       } else {
         // Fully transparent - keep full size of the source region
         trimmedSrc = ui.Rect.fromLTWH(0, 0, renderW, renderH);

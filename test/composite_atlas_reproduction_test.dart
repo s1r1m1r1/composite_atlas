@@ -7,7 +7,6 @@ import 'package:flame_texturepacker/src/model/page.dart';
 import 'package:flame_texturepacker/src/model/region.dart';
 
 import 'package:composite_atlas/composite_atlas.dart';
-import 'package:composite_atlas/src/composite_atlas_impl.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -126,7 +125,11 @@ void main() {
     expect(single, isNotNull, reason: 'Should find specific frame by suffix');
 
     final byBase = atlas.findSpriteByName('lake');
-    expect(byBase, isNotNull, reason: 'Should find by base name (matching env_lake#0)');
+    expect(
+      byBase,
+      isNotNull,
+      reason: 'Should find by base name (matching env_lake#0)',
+    );
   });
 
   test('Reproduction: broad whitelist doesn\'t steal sub-sequences', () async {
@@ -137,14 +140,11 @@ void main() {
     // These should NOT belong to 'lake' sequence even if whitelisted as 'lake'
     final s3 = createTPSprite(image, 'lake_left_0', -1);
     final s4 = createTPSprite(image, 'lake_left_1', -1);
-    
+
     final baseAtlas = TexturePackerAtlas([s1, s2, s3, s4]);
 
     final atlas = await CompositeAtlas.bake([
-      AtlasBakeRequest(
-        baseAtlas,
-        whiteList: ['lake'],
-      ),
+      AtlasBakeRequest(baseAtlas, whiteList: ['lake']),
     ]);
 
     final impl = atlas as CompositeAtlasImpl;
@@ -167,53 +167,87 @@ void main() {
     );
 
     final bakedSprite = atlas.findSpriteByName('hrz') as TexturePackerSprite;
-    
+
     // 1. Verify rotation was indeed applied by the packer
-    expect(bakedSprite.region.rotate, isTrue, reason: 'Should have rotated 50x10 to fit in 20 width');
+    expect(
+      bakedSprite.region.rotate,
+      isTrue,
+      reason: 'Should have rotated 50x10 to fit in 20 width',
+    );
 
     // 2. Verify atlas image dimensions
     // Rotated 50x10 becomes 10x50 on the sheet.
     // If the calculation was bugged, it would have used 50 for width.
-    expect(atlas.image.width, lessThan(30), reason: 'Atlas width should be small (around 10) for rotated horizontal sprite');
-    expect(atlas.image.height, greaterThan(40), reason: 'Atlas height should be large (around 50) for rotated horizontal sprite');
+    expect(
+      atlas.image.width,
+      lessThan(30),
+      reason:
+          'Atlas width should be small (around 10) for rotated horizontal sprite',
+    );
+    expect(
+      atlas.image.height,
+      greaterThan(40),
+      reason:
+          'Atlas height should be large (around 50) for rotated horizontal sprite',
+    );
 
     // 3. Verify visual size is PRESERVED (50x10)
     expect(bakedSprite.originalSize.x, equals(50));
     expect(bakedSprite.originalSize.y, equals(10));
   });
 
-  test('Reproduction: Trimming raw sprites removes whitespace and preserves offsets', () async {
-    // Create a 50x50 image with a 10x10 red block at (20, 20)
-    final image = await createTestImageWithRect(
-      width: 50,
-      height: 50,
-      rect: const ui.Rect.fromLTWH(20, 20, 10, 10),
-      color: const ui.Color(0xFFFF0000),
-    );
-    final sprite = Sprite(image);
+  test(
+    'Reproduction: Trimming raw sprites removes whitespace and preserves offsets',
+    () async {
+      // Create a 50x50 image with a 10x10 red block at (20, 20)
+      final image = await createTestImageWithRect(
+        width: 50,
+        height: 50,
+        rect: const ui.Rect.fromLTWH(20, 20, 10, 10),
+        color: const ui.Color(0xFFFF0000),
+      );
+      final sprite = Sprite(image);
 
-    final atlas = await CompositeAtlas.bake(
-      [SpriteBakeRequest(sprite, name: 'trimmed')],
-      trim: true,
-      maxAtlasWidth: 100, // Large enough
-    );
+      final atlas = await CompositeAtlas.bake(
+        [SpriteBakeRequest(sprite, name: 'trimmed')],
+        trim: true,
+        maxAtlasWidth: 100, // Large enough
+      );
 
-    final bakedSprite = atlas.findSpriteByName('trimmed') as TexturePackerSprite;
-    
-    // 1. Verify atlas image is small (around 10x10)
-    // We expect it to be 10x10 (the red block) plus padding
-    expect(atlas.image.width, lessThan(20), reason: 'Atlas width should be small after trimming');
-    expect(atlas.image.height, lessThan(20), reason: 'Atlas height should be small after trimming');
+      final bakedSprite =
+          atlas.findSpriteByName('trimmed') as TexturePackerSprite;
 
-    // 2. Verify offsets are correct
-    // The 10x10 block was at (20, 20) in the 50x50 frame.
-    expect(bakedSprite.region.offsetX, closeTo(20, 1), reason: 'Offset X should be ~20');
-    expect(bakedSprite.region.offsetY, closeTo(20, 1), reason: 'Offset Y should be ~20');
+      // 1. Verify atlas image is small (around 10x10)
+      // We expect it to be 10x10 (the red block) plus padding
+      expect(
+        atlas.image.width,
+        lessThan(20),
+        reason: 'Atlas width should be small after trimming',
+      );
+      expect(
+        atlas.image.height,
+        lessThan(20),
+        reason: 'Atlas height should be small after trimming',
+      );
 
-    // 3. Verify original size is preserved
-    expect(bakedSprite.originalSize.x, equals(50));
-    expect(bakedSprite.originalSize.y, equals(50));
-  });
+      // 2. Verify offsets are correct
+      // The 10x10 block was at (20, 20) in the 50x50 frame.
+      expect(
+        bakedSprite.region.offsetX,
+        closeTo(20, 1),
+        reason: 'Offset X should be ~20',
+      );
+      expect(
+        bakedSprite.region.offsetY,
+        closeTo(20, 1),
+        reason: 'Offset Y should be ~20',
+      );
+
+      // 3. Verify original size is preserved
+      expect(bakedSprite.originalSize.x, equals(50));
+      expect(bakedSprite.originalSize.y, equals(50));
+    },
+  );
 }
 
 Future<ui.Image> createTestImage({int width = 1, int height = 1}) async {

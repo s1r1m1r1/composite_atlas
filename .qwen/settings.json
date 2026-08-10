@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(dart *)"
-    ]
-  },
-  "$version": 3
-}

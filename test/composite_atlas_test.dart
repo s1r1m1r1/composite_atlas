@@ -8,9 +8,7 @@ import 'package:flame_texturepacker/src/model/page.dart';
 import 'package:flame_texturepacker/src/model/region.dart';
 
 import 'package:composite_atlas/composite_atlas.dart';
-import 'package:composite_atlas/src/composite_atlas_impl.dart';
 import 'package:composite_atlas/src/internal_models.dart';
-import 'package:composite_atlas/src/atlas_decorator.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -105,10 +103,7 @@ void main() {
         ImageBakeRequest(image, name: 'raw_image'),
       ]);
 
-      expect(
-        atlas.allSpriteNames,
-        contains('raw_image'),
-      );
+      expect(atlas.allSpriteNames, contains('raw_image'));
       expect(atlas.findSpriteByName('raw_image'), isNotNull);
     });
 
@@ -120,10 +115,7 @@ void main() {
         SpriteBakeRequest(sprite, name: 'my_sprite', keyPrefix: 'ui_'),
       ]);
 
-      expect(
-        atlas.allSpriteNames,
-        contains('ui_my_sprite'),
-      );
+      expect(atlas.allSpriteNames, contains('ui_my_sprite'));
       final found = atlas.findSpriteByName('ui_my_sprite');
       expect(found, isNotNull);
     });
@@ -138,10 +130,7 @@ void main() {
         AtlasBakeRequest(baseAtlas, whiteList: ['keep_']),
       ]);
 
-      expect(
-        atlas.allSpriteNames,
-        contains('keep_me#0'),
-      );
+      expect(atlas.allSpriteNames, contains('keep_me#0'));
       expect(atlas.allSpriteNames, isNot(contains('drop_me#0')));
     });
 
@@ -232,6 +221,56 @@ void main() {
       expect(decorator.wasCalled, isTrue);
       expect(decorator.context, isNotNull);
       expect(decorator.context?.itemIndex, equals(-1));
+    });
+
+    test('SpritesheetBakeRequest grid-based', () async {
+      final image = await createTestImage(
+        width: 64,
+        height: 32,
+      ); // 2x1 grid of 32x32
+      final atlas = await CompositeAtlas.bake([
+        SpritesheetBakeRequest(
+          image,
+          name: 'hero',
+          frameWidth: 32,
+          frameHeight: 32,
+        ),
+      ]);
+
+      expect(atlas.allSpriteNames, contains('hero_0'));
+      expect(atlas.allSpriteNames, contains('hero_1'));
+
+      final anim = atlas.findSpritesByName('hero');
+      expect(anim.length, equals(2));
+    });
+
+    test('SpritesheetBakeRequest explicit frames', () async {
+      final image = await createTestImage(width: 64, height: 32);
+      final atlas = await CompositeAtlas.bake([
+        SpritesheetBakeRequest(
+          image,
+          name: 'custom',
+          frames: [
+            const SpritesheetFrame(
+              name: 'f1',
+              x: 0,
+              y: 0,
+              width: 32,
+              height: 32,
+            ),
+            const SpritesheetFrame(
+              name: 'f2',
+              x: 32,
+              y: 0,
+              width: 32,
+              height: 32,
+            ),
+          ],
+        ),
+      ]);
+
+      expect(atlas.allSpriteNames, contains('f1'));
+      expect(atlas.allSpriteNames, contains('f2'));
     });
   });
 
